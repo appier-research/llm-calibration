@@ -1,2 +1,2 @@
 # On Calibration of Large Language Models: From Response To Capability
-We will update the codebase once ready.
+We will update the codebase once it is ready.
