@@ -1,0 +1,48 @@
+# Main Hydra configuration
+# Override with: python script.py model=llama_7b dataset=gsm8k estimator=verbalized
+
+defaults:
+  - _self_
+  - model: openai_compat
+  - dataset: gsm8k
+  - prompts/prediction: cot
+  - verifier: string_match
+  - optional experiment: null
+
+# Inference settings
+inference:
+  max_tokens: 8192
+  temperature: 0.7
+  top_p: 0.8
+  stop_sequences: null
+
+# Sampling for ground truth computation (k samples per question)
+sampling:
+  k: 100
+
+# Caching (SQLite)
+cache:
+  enabled: true
+  path: ${hydra:runtime.output_dir}/cache.db
+
+# Async API settings
+async_:
+  max_concurrent: 100
+  timeout_seconds: 1800
+
+# Paths
+paths:
+  output_dir: ${hydra:runtime.output_dir}
+  ground_truth_path: null  # Set to load precomputed ground truth
+
+# Random seed
+seed: 42
+
+# Hydra configuration
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: outputs/sweeps/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+

@@ -1,0 +1,14 @@
+# OpenAI-compatible API configuration (vLLM/SGLang servers)
+# @package _global_.model
+
+_target_: src.models.openai_compat.OpenAICompatModel
+
+model_id: "meta-llama/Llama-3.1-8B-Instruct"
+base_url: "http://localhost:8000/v1"
+api_key: "EMPTY"  # Usually not needed for local servers
+hidden_state_mode: "last_token"
+
+# API-specific settings
+timeout: 1800
+max_retries: 3
+

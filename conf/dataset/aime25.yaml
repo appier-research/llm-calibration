@@ -1,0 +1,11 @@
+# AIME 2025 math competition problems
+# @package _global_.dataset
+
+_target_: src.data.datasets.aime25.AIME25Dataset
+
+split: "test"
+max_examples: null  # Set for debugging, e.g., 10
+seed: ${seed}
+
+# Dataset-specific settings
+hf_path: "math-ai/aime25"

@@ -1,0 +1,13 @@
+# GPQA multiple choice (expert-level science questions)
+# @package _global_.dataset
+
+_target_: src.data.datasets.gpqa.GPQADataset
+
+split: "train"  # GPQA only has train split
+max_examples: null
+seed: ${seed}
+
+# Dataset-specific settings
+hf_path: "Idavidrein/gpqa"
+hf_name: "gpqa_main"  # or gpqa_main, gpqa_extended
+

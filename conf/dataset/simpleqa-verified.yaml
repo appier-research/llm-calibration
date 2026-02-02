@@ -1,0 +1,15 @@
+# SimpleQA-Verified factuality benchmark
+# @package _global_.dataset
+
+_target_: src.data.datasets.simpleqa_verified.SimpleQAVerifiedDataset
+
+split: "eval"
+max_examples: null  # Set for debugging, e.g., 100
+seed: ${seed}
+
+# Dataset-specific settings
+hf_path: "google/simpleqa-verified"
+verification_mode: "string_match"
+llm_judge_model: "openai/gpt-oss-20b"
+llm_judge_base_url: "http://69.30.85.75:22157/v1"
+llm_judge_max_concurrent: 1000

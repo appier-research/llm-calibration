@@ -1,0 +1,14 @@
+# Debug configuration - fast iteration
+# @package _global_
+
+# Limit examples for quick testing
+dataset:
+  max_examples: null
+
+# Reduce sampling
+sampling:
+  k: 100
+
+# Smaller async batch
+async_:
+  max_concurrent: 500

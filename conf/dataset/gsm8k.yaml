@@ -1,0 +1,13 @@
+# GSM8K math word problems
+# @package _global_.dataset
+
+_target_: src.data.datasets.gsm8k.GSM8KDataset
+
+split: "test"
+max_examples: null  # Set for debugging, e.g., 100
+seed: ${seed}
+
+# Dataset-specific settings
+hf_path: "openai/gsm8k"
+hf_name: "main"
+

@@ -1,0 +1,16 @@
+# TriviaQA reading comprehension
+# @package _global_.dataset
+
+_target_: src.data.datasets.triviaqa.TriviaQADataset
+
+split: "validation"
+max_examples: null  # Set for debugging, e.g., 100
+seed: ${seed}
+
+# Dataset-specific settings
+hf_path: "mandarjoshi/trivia_qa"
+hf_name: "rc.nocontext"  # rc, rc.nocontext, unfiltered, unfiltered.nocontext
+verification_mode: "string_match"
+llm_judge_model: "openai/gpt-oss-20b"
+llm_judge_base_url: "http://69.30.85.75:22157/v1"
+llm_judge_max_concurrent: 1000

@@ -1,0 +1,14 @@
+# String matching verifier
+# @package _global_.verifier
+
+_target_: src.verifiers.string_match.StringMatchVerifier
+
+# Normalization options
+normalize_whitespace: true
+lowercase: true
+strip_punctuation: false
+
+# For numeric answers (GSM8K)
+numeric_tolerance: 1e-6
+extract_numbers: true  # Extract and compare numeric values
+

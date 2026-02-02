@@ -1,0 +1,12 @@
+# MMLU multiple choice
+# @package _global_.dataset
+
+_target_: src.data.datasets.mmlu.MMLUDataset
+
+split: "test"
+max_examples: null
+seed: ${seed}
+
+# Dataset-specific settings
+hf_path: "cais/mmlu"
+hf_name: "all"  # Or specific subject like "abstract_algebra"

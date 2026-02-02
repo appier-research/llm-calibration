@@ -1,0 +1,24 @@
+# Chain-of-thought prediction prompt
+# @package _global_.prompts.prediction
+# Olmo-3-7B-Instruct: (default system prompt)
+  # You are a helpful function-calling AI assistant. 
+  # You do not currently have access to any functions. <functions></functions>
+
+system: |
+
+user_template: |
+  {question}
+
+format_instructions:
+  triviaqa: "After your reasoning, provide your final answer in the format of \\boxed{X}. For example, for the question 'Which American-born Sinclair won the Nobel Prize for Literature in 1930?', the answer is \\boxed{Sinclair Lewis}."
+  simpleqa-verified: "After your reasoning, provide your final answer in the format of \\boxed{X}. For example, for the question 'Which American-born Sinclair won the Nobel Prize for Literature in 1930?', the answer is \\boxed{Sinclair Lewis}."
+  gsm8k: "After your reasoning, provide your final answer number X in the format of \\boxed{X}."
+  math-500: "After your reasoning, provide your final mathematical answer string X in the format of \\boxed{X}."
+  aime25: "After your reasoning, provide your final answer number X in the format of \\boxed{X}."
+  mmlu: "After your reasoning, provide your final answer choice X (A, B, C, or D) in the format of \\boxed{X}."
+  gpqa: "After your reasoning, provide your final answer choice X (A, B, C, or D) in the format of \\boxed{X}."
+  math-train: "After your reasoning, provide your final mathematical answer string X in the format of \\boxed{X}."
+  math-valid: "After your reasoning, provide your final mathematical answer string X in the format of \\boxed{X}."
+
+few_shot_examples: null
+num_few_shot: 0
