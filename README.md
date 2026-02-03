@@ -46,19 +46,36 @@ Code in these scripts would also construct the training datasets for linear prob
 ## Confidence Estimation Methods for Capability Calibration
 Currently, we support the following confidence estimation methods:
 * [Verbalized confidence](#verbalized-confidence): Asking the LLM to state the confidence as a percentage (0-100%).
+* [P(True)](#ptrue): Asking the LLM whether it can answer the query correctly by instructing it to respond with only “Yes” or “No”, extract the logprobs of these two tokens, and use the softmax probability of “Yes” as the confidence estimate.
 
 ### Verbalized Confidence
 As an example, you can run the following command to get verbalized confidence of `Qwen/Qwen3-8B` on the `triviaqa` dataset:
 ```bash
+base_url="<your_base_url>"
 uv run python scripts/verbalize_confidence.py \
     --model "Qwen/Qwen3-8B" \
-    --base_url "<your_base_url>" \
-    --temperature 1.0 \
-    --top_p 1.0 \
+    --base_url ${base_url} \
+    --temperature 0.7 \
+    --top_p 0.8 \
     --max_concurrent 1000 \
     --ground_truth_jsonl "outputs/triviaqa-validation__Qwen3-8B-non-thinking/ground_truth.jsonl" \
     --output_dir "estimator_results/verbalized_confidence/triviaqa-validation__Qwen3-8B-non-thinking" \
     --max_completion_tokens 5000
+```
+
+### P(True)
+As an example, you can run the following command to get P(True) of `allenai/Olmo-3-7B-Instruct` on the `triviaqa` dataset:
+```bash
+base_url="<your_base_url>"
+uv run python scripts/ptrue.py \
+    --model "allenai/Olmo-3-7B-Instruct" \
+    --base_url ${base_url} \
+    --temperature 0.6 \
+    --top_p 0.95 \
+    --max_concurrent 1000 \
+    --ground_truth_jsonl "outputs/triviaqa-validation__Olmo-3-7B-Instruct/ground_truth.jsonl" \
+    --output_dir "estimator_results/ptrue/triviaqa-validation__Olmo-3-7B-Instruct" \
+    --max_completion_tokens 1  # should change to ~8192 for reasoning LMs (e.g., gpt-oss-20b)
 ```
 
 ### Training Light-Weight (Linear) Probes
