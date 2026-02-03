@@ -8,7 +8,7 @@ pipx install uv
 uv sync
 ```
 
-## Construct the Evaluation Datasets
+## Construct Capability Calibration Datasets
 To measure how well a method performs under the capability calibration framework, one needs to construct the evaluation datasets first.
 Currently, we support the following datasets:
 * Factual knowledge: [`triviaqa`](https://huggingface.co/datasets/mandarjoshi/trivia_qa), [`simpleqa-verified`](https://huggingface.co/datasets/google/simpleqa-verified)
@@ -20,7 +20,7 @@ We use repeated sampling to estimate the expected accuracy of each instance, so 
 uv run python scripts/construct_eval_datasets.py \
     experiment=default \
     experiment.sampling.k=100 \
-    experiment.async_.max_concurrent=100 \
+    experiment.async_.max_concurrent=500 \
     dataset="gsm8k" \
     dataset.split="test" \
     model="openai_compat" \
@@ -32,5 +32,15 @@ uv run python scripts/construct_eval_datasets.py \
     inference.top_p=1.0 \
     hydra.run.dir="outputs/gsm8k-test__gpt-oss-20b"
 ```
+
+To reproduce the results in the paper, you can run the following command to construct the evaluation / training datasets:
+```bash
+models=("olmo-3-7b-instruct" "qwen3-8b-non-thinking" "gpt-oss-20b")
+for model in "${models[@]}"; do
+    bash paper_results/construct_capability_calibration_datasets/${model}.sh
+done
+```
+
+Code in these scripts would also construct the training datasets for linear probes.
 
 ## Reproduce the Results

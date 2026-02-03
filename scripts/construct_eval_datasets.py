@@ -73,8 +73,6 @@ def main(cfg: DictConfig) -> None:
     from omegaconf import OmegaConf
     cfg = OmegaConf.merge(cfg, cfg.experiment)
     d = OmegaConf.to_container(cfg, resolve=True)
-    logger.info("After merging experiment config")
-    logger.info(json.dumps(d, indent=4))
 
     from collections import defaultdict
 
