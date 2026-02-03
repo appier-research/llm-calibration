@@ -25,7 +25,7 @@ uv run python scripts/construct_eval_datasets.py \
     dataset.split="test" \
     model="openai_compat" \
     model.model_id="openai/gpt-oss-20b" \
-    model.base_url="http://194.68.245.55:22055/v1" \
+    model.base_url="<your_base_url>" \
     hydra.job_logging.root.level="INFO" \
     inference.max_tokens=32700 \
     inference.temperature=1.0 \
@@ -43,4 +43,23 @@ done
 
 Code in these scripts would also construct the training datasets for linear probes.
 
-## Reproduce the Results
+## Confidence Estimation Methods for Capability Calibration
+Currently, we support the following confidence estimation methods:
+* [Verbalized confidence](#verbalized-confidence): Asking the LLM to state the confidence as a percentage (0-100%).
+
+### Verbalized Confidence
+As an example, you can run the following command to get verbalized confidence of `Qwen/Qwen3-8B` on the `triviaqa` dataset:
+```bash
+uv run python scripts/verbalize_confidence.py \
+    --model "Qwen/Qwen3-8B" \
+    --base_url "<your_base_url>" \
+    --temperature 1.0 \
+    --top_p 1.0 \
+    --max_concurrent 1000 \
+    --ground_truth_jsonl "outputs/triviaqa-validation__Qwen3-8B-non-thinking/ground_truth.jsonl" \
+    --output_dir "estimator_results/verbalized_confidence/triviaqa-validation__Qwen3-8B-non-thinking" \
+    --max_completion_tokens 5000
+```
+
+### Training Light-Weight (Linear) Probes
+
