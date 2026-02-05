@@ -1,9 +1,9 @@
 # General configs for the language model
 model_id="allenai/Olmo-3-7B-Instruct"
 model_name="Olmo-3-7B-Instruct"
-base_url="http://213.173.111.167:28497/v1"
+base_url="http://TBD/v1"  # TODO: set your own base URL here
 llm_judge_model="openai/gpt-oss-20b"
-llm_judge_base_url="http://194.68.245.137:22050/v1"
+llm_judge_base_url="http://TBD/v1"  # TODO: set your own base URL here
 max_tokens=32000
 temperature=0.6
 top_p=0.95

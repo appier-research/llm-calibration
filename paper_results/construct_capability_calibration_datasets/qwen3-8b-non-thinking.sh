@@ -1,10 +1,10 @@
 # General configs for the language model
 model_id="Qwen/Qwen3-8B"
 model_name="Qwen3-8B-non-thinking"
-base_url="http://213.173.111.167:22031/v1"
+base_url="http://TBD/v1"  # TODO: set your own base URL here
 llm_judge_model="openai/gpt-oss-20b"
-llm_judge_base_url="http://194.68.245.137:22050/v1"
-max_tokens=32000
+llm_judge_base_url="http://TBD/v1"  # TODO: set your own base URL here
+max_tokens=8192
 temperature=0.7
 top_p=0.8
 max_concurrent=500

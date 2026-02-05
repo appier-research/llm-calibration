@@ -1,9 +1,9 @@
 # General configs for the language model
 model_id="openai/gpt-oss-20b"
 model_name="gpt-oss-20b"
-base_url="http://69.30.85.16:22033/v1"
+base_url="http://TBD/v1"  # TODO: set your own base URL here
 llm_judge_model="openai/gpt-oss-20b"
-llm_judge_base_url="http://194.68.245.137:22050/v1"
+llm_judge_base_url="http://TBD/v1"  # TODO: set your own base URL here
 max_tokens=32700
 temperature=1.0
 top_p=1.0
