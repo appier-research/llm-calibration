@@ -1,0 +1,40 @@
+# Instance-level pass@k evaluation configuration
+
+# Data paths
+outputs_dir: ../../outputs
+results_dir: ../results/passk_simulation/instance_passk_results
+estimator_results_dir: ../../estimator_results
+
+# Datasets to evaluate
+datasets: ["aime25-test","math-500"]
+
+# K values to evaluate (table columns)
+k_values: [1, 4, 16, 64]
+
+# Maximum samples per instance
+max_samples: 100
+
+# Metrics to compute for each (method, k) pair
+metrics: ["mse"] #"mae", "pearson_r"
+
+# Confidence sources to compare (table rows)
+confidence_sources:
+  oracle_rc:
+    type: "oracle_response"
+    label: "Oracle RC"
+    
+  oracle_cc:
+    type: "ground_truth"
+    label: "Oracle CC"
+
+  linear_probe_math:
+    type: "learned"
+    method: "linear_probe"
+    probe_suffix: "trained-on-math-train-and-validated-on-math-valid"
+    label: "Linear Probe"
+
+# Plotting configuration
+plot_config:
+  figsize: [10, 6]
+  dpi: 150
+  bins: 50  # Number of bins for error distribution histogram

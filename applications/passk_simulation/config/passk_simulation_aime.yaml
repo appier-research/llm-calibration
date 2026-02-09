@@ -1,0 +1,51 @@
+# Configuration for pass@k Simulation
+
+# Datasets to process (script will auto-discover all models for each dataset)
+datasets:
+  - aime25-test
+
+# Paths
+outputs_dir: ../../outputs
+results_dir: ../results/passk_simulation/dataset_level_passk_results
+estimator_results_dir: ../../estimator_results
+
+# pass@k parameters
+k_values: [1, 2, 4, 8, 16, 32, 64]
+max_samples: 100                # Maximum number of samples to use per instance
+
+# Confidence clipping thresholds
+# If confidence < threshold, it will be set to 0.0
+# Use [0.0] for no clipping (default)
+clipping_thresholds: [0.0]      # Example: [0.0, 0.1, 0.2, 0.3, 0.5]
+
+# Confidence sources (flexible for future extensions)
+confidence_sources:
+  oracle_rc:
+    type: "oracle_response"     # Randomly pick one sample's correctness (5 seeds)
+    label: "Oracle-RC"
+    category: "baseline"        # green, solid
+
+  oracle_cc:
+    type: "ground_truth"        # Use expected_accuracy from ground_truth.jsonl
+    label: "Oracle-CC"
+    category: "standard"        # red, solid
+
+  linear_probe_math:
+    type: "learned"
+    method: "linear_probe"
+    probe_suffix: "trained-on-math-train-and-validated-on-math-valid"
+    label: "Probe-Math"
+    category: "probe"           # blue, solid
+
+# Plotting configuration
+plot_config:
+  figsize: [10, 6]
+  dpi: 300
+  show_ci: true                 # Show 95% confidence intervals
+  alpha_ci: 0.2                 # Transparency for CI bands
+  grid: true
+  grid_alpha: 0.3
+  y_tick_list: [0.5, 0.7, 0.9]
+  adaptive_ylim: false          # Adaptive y-axis based on all curves with margin
+  ylim_margin: 0.05             # Margin above/below data (absolute value, 0.05 = 5% of [0,1] scale)
+  ylim_min_range: 0.15          # Minimum visible range (15% of [0,1] scale)
