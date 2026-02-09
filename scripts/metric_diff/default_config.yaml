@@ -1,0 +1,24 @@
+# Default configuration for evaluation definition comparison
+# Lists all available datasets - the script will find all models for each dataset
+
+# List of datasets to analyze
+# The script automatically finds all model folders for each dataset
+datasets:
+  - aime25-test
+  - gpqa-diamond
+  - gsm8k-test
+  #- gsm8k-train
+  - mmlu-validation
+  #- triviaqa-train
+  - triviaqa-validation
+  - math-500
+  - simpleqa-verified
+
+# Base directory containing output folders
+outputs_dir: ../../outputs
+
+# Directory to save comparison results
+output_dir: ../../metric_diff_results
+
+# Random seed for reproducible sampling of old definition
+random_seed: 42
