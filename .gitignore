@@ -27,3 +27,6 @@ budget_allocation/results
 passk_simulation/results
 metric_diff/results
 estimator_results/*
+
+# documents
+*.pdf

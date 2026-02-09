@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>On Calibration of Large Language Models: From Response To Capability</title>
+  <style>
+@import url('https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css');
+
+html {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+a, a.visited {
+  color: inherit;
+}
+
+h1, h2, h3 {
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  font-weight: 600;
+  margin-bottom: 0;
+}
+
+body {
+  line-height: 1.5;
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display",
+    "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji",
+    "Segoe UI Symbol";
+}
+
+@media only screen {
+  body {
+    margin: 2em auto;
+    max-width: 900px;
+    color: rgb(55, 53, 47);
+  }
+}
+
+a, a.visited {
+  text-decoration: underline;
+}
+
+.page-title {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: 0.75em;
+}
+
+h1 { font-size: 1.875rem; margin-top: 1.875rem; }
+h2 { font-size: 1.5rem; margin-top: 1.5rem; }
+h3 { font-size: 1.25rem; margin-top: 1.25rem; }
+
+figure {
+  margin: 1.25em 0;
+  page-break-inside: avoid;
+}
+
+figcaption {
+  opacity: 0.5;
+  font-size: 85%;
+  margin-top: 0.5em;
+}
+
+img {
+  max-width: 100%;
+}
+
+p {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.image {
+  border: none;
+  margin: 1.5em 0;
+  padding: 0;
+  border-radius: 0;
+  text-align: center;
+}
+
+.column-list {
+  display: flex;
+  justify-content: space-between;
+}
+
+.column {
+  padding: 0 1em;
+}
+
+.column:first-child { padding-left: 0; }
+.column:last-child { padding-right: 0; }
+
+.highlight-blue {
+  color: rgba(51, 126, 169, 1);
+  fill: rgba(51, 126, 169, 1);
+}
+
+.highlight-teal {
+  color: rgba(68, 131, 97, 1);
+  fill: rgba(68, 131, 97, 1);
+}
+
+.code, code {
+  background: rgba(135, 131, 120, 0.15);
+  border-radius: 3px;
+  padding: 0.2em 0.4em;
+  font-size: 85%;
+  tab-size: 2;
+}
+
+.code {
+  padding: 1.5em 1em;
+  font-family: "SFMono-Regular", Menlo, Consolas, "PT Mono", "Liberation Mono", Courier, monospace;
+}
+
+.code-wrap {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.code > code {
+  background: none;
+  padding: 0;
+  font-size: 100%;
+  color: inherit;
+}
+
+hr {
+  background: transparent;
+  display: block;
+  width: 100%;
+  height: 1px;
+  visibility: visible;
+  border: none;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.09);
+}
+
+/* Table styles */
+table, th, td {
+  border: 1px solid rgba(55, 53, 47, 0.09);
+  border-collapse: collapse;
+}
+
+table {
+  border-left: none;
+  border-right: none;
+  width: 100%;
+  margin: 1em 0;
+  font-size: 0.875rem;
+}
+
+th, td {
+  font-weight: normal;
+  padding: 0.25em 0.5em;
+  line-height: 1.5;
+  min-height: 1.5em;
+  text-align: left;
+}
+
+th {
+  color: rgba(55, 53, 47, 0.6);
+  font-weight: 500;
+  background: rgb(247, 246, 243);
+}
+
+/* Navigation */
+.nav-link-wrap {
+  text-align: center;
+  margin-top: 2.5em;
+}
+
+.button-link {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 1rem 1.2rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  font-size: 1.05rem;
+  background: #f9fafb;
+  color: inherit;
+  white-space: normal;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.button-link::after {
+  content: "\2192";
+  font-size: 1.1em;
+}
+
+.button-link:hover {
+  background: #ffffff;
+  border-color: #cbd5f5;
+}
+
+.nav-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  body {
+    margin: 1em;
+    padding: 0 0.5em;
+  }
+
+  .page-title {
+    font-size: 1.75rem;
+  }
+
+  h1 { font-size: 1.5rem; }
+  h2 { font-size: 1.25rem; }
+  h3 { font-size: 1.1rem; }
+
+  .column-list {
+    flex-direction: column;
+  }
+
+  .column {
+    width: 100% !important;
+    padding: 0;
+    margin-bottom: 1em;
+  }
+
+  .column:first-child { margin-bottom: 0; }
+
+  table {
+    font-size: 0.75rem;
+  }
+
+  pre.code {
+    font-size: 0.75rem;
+    padding: 1em 0.75em;
+    overflow-x: auto;
+  }
+}
+  </style>
+</head>
+<body>
+  <article class="page sans">
+    <header>
+      <h1 class="page-title">On Calibration of Large Language Models: From Response To Capability</h1>
+    </header>
+
+    <div class="page-body">
+
+      <!-- Authors -->
+      <p>
+        Sin-Han Yang<sup>1*</sup>, &nbsp;
+        <a href="https://brian-ckwu.github.io/" style="text-decoration:underline">Cheng-Kuang Wu</a><sup>1*</sup>, &nbsp;
+        Chieh-Yen Lin<sup>1</sup>, &nbsp;
+        <a href="https://www.csie.ntu.edu.tw/~yvchen/" style="text-decoration:underline">Yun-Nung Chen</a><sup>2</sup>, &nbsp;
+        <a href="https://speech.ee.ntu.edu.tw/~hylee/index.php" style="text-decoration:underline">Hung-yi Lee</a><sup>2</sup>, &nbsp;
+        <a href="https://shaohua0116.github.io/" style="text-decoration:underline">Shao-Hua Sun</a><sup>1,2</sup>
+      </p>
+      <p><sup>1</sup>Appier AI Research &nbsp;&nbsp; <sup>2</sup>National Taiwan University</p>
+      <p>*Equal contribution, junior author listed earlier</p>
+      <p>
+        <strong>Paper: </strong><a href="https://drive.google.com/file/d/1my8A3HYPHKAVMmBuCWEChYm1ASob19lc/view?usp=sharing" style="text-decoration:underline">Google Drive link</a>, arXiv version coming soon
+      </p>
+      <p></p>
+        <strong>Code: </strong><a href="https://github.com/appier-research/llm-calibration" style="text-decoration:underline">https://github.com/appier-research/llm-calibration</a>
+      </p>
+
+      <!-- Figure 1 -->
+      <figure class="image" style="text-align:center; margin-bottom:3em;">
+        <a href="images/figure1_calibration_definitions.png">
+          <img style="width:100%; max-width:720px;" src="images/figure1_calibration_definitions.png"/>
+        </a>
+        <figcaption>
+          Figure 1. Definitions of (a) response calibration and our proposed (b) capability calibration.
+          Response calibration calibrates the confidence against the correctness of a single output &#x177;.
+          Capability calibration calibrates the confidence against the expected accuracy of the model's output distribution.
+        </figcaption>
+      </figure>
+
+      <!-- Abstract -->
+      <h3><strong>Abstract</strong></h3>
+      <p>
+        Large language models (LLMs) are widely deployed as general-purpose problem solvers,
+        making accurate confidence estimation critical for reliable use. Prior work on LLM calibration
+        largely focuses on response-level confidence, which estimates the correctness of a single
+        generated output. However, this formulation is misaligned with many practical settings where
+        the central question is <em>how likely a model is to solve a query overall</em>.
+      </p>
+      <p>
+        We show that this mismatch results from the stochastic nature of modern LLM decoding,
+        under which single-response correctness fails to reflect underlying model capability.
+        To address this issue,
+        <mark class="highlight-blue"><strong>we introduce capability calibration, which targets the model's expected accuracy on a query.</strong></mark>
+        We formally distinguish capability calibration from response calibration and show that the two
+        differ both theoretically and empirically. We establish an empirical evaluation setup and study
+        a range of confidence estimation methods. Our results demonstrate that capability-calibrated
+        confidence improves pass@k prediction and inference budget allocation, establishing a
+        foundation with potential for diverse applications.
+      </p>
+
+      <!-- Response vs Capability Calibration -->
+      <h3><strong>Response Calibration &ne; Capability Calibration</strong></h3>
+      <p>
+        LLMs typically use stochastic decoding (e.g., non-zero temperature sampling), which can
+        produce different responses given the same query across inference calls. As a result, the
+        correctness of any single sampled response cannot accurately reflect the LLM's underlying
+        capability on that query.
+      </p>
+      <p>
+        We introduce <strong>capability calibration</strong>, which shifts the focus from whether a
+        particular sampled response happens to be correct to <em>how capable the model is of solving
+        the query in expectation</em>. These two notions differ both theoretically and empirically:
+        <mark class="highlight-blue"><strong>capability calibration is not merely the expectation of response
+        calibration; the two quantities differ precisely by the variance of response correctness under
+        the model's output distribution.</strong></mark>
+      </p>
+
+      <!-- Table 1 -->
+      <table>
+        <thead>
+          <tr>
+            <th>Definition</th>
+            <th>Calibration Target</th>
+            <th>Interpretation</th>
+            <th>Dependence on LM f<sub>&theta;</sub></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Response Calibration</td>
+            <td>Accuracy of &#x177; given x</td>
+            <td>How likely is &#x177; correct?</td>
+            <td>
+              <strong>No.</strong> Since &#x177; is already decoded, the estimation of s(x, &#x177;)
+              is decoupled from the generating model f<sub>&theta;</sub>.
+            </td>
+          </tr>
+          <tr>
+            <td><mark class="highlight-blue">Capability Calibration</mark></td>
+            <td><mark class="highlight-blue">Expected accuracy of f<sub>&theta;</sub> given x</mark></td>
+            <td><mark class="highlight-blue">How confident is f<sub>&theta;</sub> in answering x?</mark></td>
+            <td>
+              <mark class="highlight-blue"><strong>Yes.</strong> The expected accuracy of x is directly
+              dependent on f<sub>&theta;</sub>'s capability.</mark>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <figcaption>
+        Table 1. Comparison of calibration definitions. Unlike existing response calibration that
+        assesses whether the confidence estimate aligns with the correctness of one decoded answer &#x177;,
+        our proposed capability calibration evaluates whether it aligns with the model's capability
+        to answer query x.
+      </figcaption>
+
+      <!-- Probing: Cost-Performance Tradeoff -->
+      <h3><strong>Probing Has the Best Cost-Performance Tradeoff</strong></h3>
+      <div class="column-list">
+        <div style="width:43.75%" class="column">
+          <p>
+            A practically useful confidence estimation method should have both acceptable inference
+            cost and good calibration performance. We compare inference cost against calibration
+            performance (1 - Brier score), where the upper-left corner is the ideal region.
+          </p>
+          <p>
+            <mark class="highlight-blue"><strong>Among all evaluated methods, training linear probes on
+            LLM activations is the only one that consistently falls in this ideal region</strong></mark>
+            &mdash; achieving strong calibration with cost less than decoding a single token.
+            In contrast, response consistency requires multiple forward passes per query, making it
+            impractical for real-time applications.
+          </p>
+        </div>
+        <div style="width:56.25%" class="column">
+          <figure class="image" style="margin-top:0;">
+            <a href="images/figure3_cost_performance_tradeoff_example.png">
+              <img style="width:100%;" src="images/figure3_cost_performance_tradeoff_example.png"/>
+            </a>
+            <figcaption>
+              Figure 3. Cost-performance tradeoff of different methods. We compare inference cost
+              (x-axis, log-scale) against calibration performance (y-axis, 1 - Brier score).
+              Among evaluated methods, probing is the only one that consistently falls in the
+              ideal upper-left region.
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+
+      <!-- Figure 4: Full Results -->
+      <h3><strong>Full Results Across Models and Datasets</strong></h3>
+      <figure class="image" style="text-align:center;">
+        <a href="images/figure4_cost_performance_tradeoff_all.png">
+          <img style="width:100%;" src="images/figure4_cost_performance_tradeoff_all.png"/>
+        </a>
+        <figcaption>
+          Figure 4. Cost-performance tradeoff of different confidence estimation methods with three
+          LLMs on seven datasets. Probing consistently outperforms the random baseline while
+          incurring the lowest cost, while response consistency incurs a cost higher than decoding responses.
+        </figcaption>
+      </figure>
+
+      <!-- Applications -->
+      <h3><strong>Applications</strong></h3>
+      <p>We demonstrate that capability calibration enables practical applications:</p>
+      <p>
+        <strong>Pass@k Prediction:</strong> Capability-calibrated confidence can simulate the pass@k
+        performance of each instance <em>without</em> sampling multiple outputs or assuming a prior
+        distribution over the dataset. Perfectly capability-calibrated confidence achieves near-perfect
+        simulation, and our trained probe outperforms oracle response-calibrated confidence.
+      </p>
+      <p>
+        <strong>Inference Budget Allocation:</strong> Capability-calibrated confidence guides the
+        allocation of computational resources across queries, allocating more compute to harder questions.
+        <mark class="highlight-blue"><strong>Both verbalized confidence and probing outperform uniform
+        allocation, and the benefits extend to API-based LLMs.</strong></mark>
+      </p>
+
+      <!-- BibTeX -->
+      <h3><strong>BibTeX</strong></h3>
+      <pre class="code code-wrap"><code style="white-space:pre-wrap;word-break:break-all">@article{yang2025calibration,
+  title={On Calibration of Large Language Models: From Response To Capability},
+  author={Yang, Sin-Han and Wu, Cheng-Kuang and Lin, Chieh-Yen and Chen, Yun-Nung and Lee, Hung-yi and Sun, Shao-Hua},
+  year={2025}
+}</code></pre>
+
+    </div>
+  </article>
+
+  <!-- Footer Navigation -->
+  <div class="page-body">
+    <p class="nav-link-wrap">
+      <span class="nav-links">
+        <a class="button-link" href="https://github.com/appier-research/llm-calibration">
+          <span class="button-label">View Code on GitHub</span>
+        </a>
+      </span>
+    </p>
+  </div>
+</body>
+</html>
