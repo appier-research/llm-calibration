@@ -30,3 +30,8 @@ estimator_results/*
 
 # documents
 *.pdf
+
+# test blog page locally
+docs/_site
+docs/.jekyll-metadata
+docs/Gemfile*
