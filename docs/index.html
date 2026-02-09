@@ -116,7 +116,7 @@ p {
   background: rgba(135, 131, 120, 0.15);
   border-radius: 3px;
   padding: 0.2em 0.4em;
-  font-size: 85%;
+  font-size: 100%;
   tab-size: 2;
 }
 
@@ -304,7 +304,7 @@ th {
         We show that this mismatch results from the stochastic nature of modern LLM decoding,
         under which single-response correctness fails to reflect underlying model capability.
         To address this issue,
-        <mark class="highlight-blue"><strong>we introduce capability calibration, which targets the model's expected accuracy on a query.</strong></mark>
+        <strong>we introduce capability calibration, which targets the model's expected accuracy on a query.</strong>
         We formally distinguish capability calibration from response calibration and show that the two
         differ both theoretically and empirically. We establish an empirical evaluation setup and study
         a range of confidence estimation methods. Our results demonstrate that capability-calibrated
@@ -324,9 +324,9 @@ th {
         We introduce <strong>capability calibration</strong>, which shifts the focus from whether a
         particular sampled response happens to be correct to <em>how capable the model is of solving
         the query in expectation</em>. These two notions differ both theoretically and empirically:
-        <mark class="highlight-blue"><strong>capability calibration is not merely the expectation of response
+        <strong>capability calibration is not merely the expectation of response
         calibration; the two quantities differ precisely by the variance of response correctness under
-        the model's output distribution.</strong></mark>
+        the model's output distribution.</strong>
       </p>
 
       <!-- Table 1 -->
@@ -350,12 +350,12 @@ th {
             </td>
           </tr>
           <tr>
-            <td><mark class="highlight-blue">Capability Calibration</mark></td>
-            <td><mark class="highlight-blue">Expected accuracy of f<sub>&theta;</sub> given x</mark></td>
-            <td><mark class="highlight-blue">How confident is f<sub>&theta;</sub> in answering x?</mark></td>
+            <td>Capability Calibration</td>
+            <td>Expected accuracy of f<sub>&theta;</sub> given x</td>
+            <td>How confident is f<sub>&theta;</sub> in answering x?</td>
             <td>
-              <mark class="highlight-blue"><strong>Yes.</strong> The expected accuracy of x is directly
-              dependent on f<sub>&theta;</sub>'s capability.</mark>
+              <strong>Yes.</strong> The expected accuracy of x is directly
+              dependent on f<sub>&theta;</sub>'s capability.
             </td>
           </tr>
         </tbody>
@@ -377,8 +377,8 @@ th {
             performance (1 - Brier score), where the upper-left corner is the ideal region.
           </p>
           <p>
-            <mark class="highlight-blue"><strong>Among all evaluated methods, training linear probes on
-            LLM activations is the only one that consistently falls in this ideal region</strong></mark>
+            <strong>Among all evaluated methods, training linear probes on
+            LLM activations is the only one that consistently falls in this ideal region</strong>
             &mdash; achieving strong calibration with cost less than decoding a single token.
             In contrast, response consistency requires multiple forward passes per query, making it
             impractical for real-time applications.
@@ -424,15 +424,15 @@ th {
       <p>
         <strong>Inference Budget Allocation:</strong> Capability-calibrated confidence guides the
         allocation of computational resources across queries, allocating more compute to harder questions.
-        <mark class="highlight-blue"><strong>Both verbalized confidence and probing outperform uniform
-        allocation, and the benefits extend to API-based LLMs.</strong></mark>
+        <strong>Both verbalized confidence and probing outperform uniform
+        allocation, and the benefits extend to API-based LLMs.</strong>
       </p>
 
       <!-- BibTeX -->
       <h3><strong>BibTeX</strong></h3>
       <pre class="code code-wrap"><code style="white-space:pre-wrap;word-break:break-all">@article{yang2025calibration,
   title={On Calibration of Large Language Models: From Response To Capability},
-  author={Yang, Sin-Han and Wu, Cheng-Kuang and Lin, Chieh-Yen and Chen, Yun-Nung and Lee, Hung-yi and Sun, Shao-Hua},
+  author={Sin-Han Yang and Cheng-Kuang Wu and Chieh-Yen Lin and Yun-Nung Chen and Hung-yi Lee and Shao-Hua Sun},
   year={2025}
 }</code></pre>
 
