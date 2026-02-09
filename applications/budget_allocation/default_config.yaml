@@ -1,0 +1,78 @@
+# Configuration for budget allocation evaluation
+
+# List of datasets to evaluate
+# Script automatically finds all model folders for each dataset
+datasets:
+  - aime25-test
+  - math-500
+  # - gpqa-diamond
+  # - gpqa-main
+  # - gsm8k-test
+  # #- gsm8k-train
+  # - mmlu-test
+  # - mmlu-validation
+  # #- triviaqa-train
+  # - triviaqa-validation
+
+# Paths
+outputs_dir: ../../outputs
+results_dir: ../results/budget_allocation
+estimator_results_dir: ../../estimator_results
+
+# Budget multipliers to test (B values where total_budget = B * N)
+budget_multipliers: [1, 2, 4, 8, 16, 32]
+
+# Minimum samples per question (0 allows skipping questions)
+min_budget: 0
+
+# Maximum samples per question (prevents over-sampling)
+max_samples_per_question: 100
+
+# Confidence sources to evaluate
+# Available sources:
+#   - 'oracle': Uses ground truth expected_accuracy (perfect confidence)
+#   - 'verbalized': Loads from estimator_results/verbalized_confidence/.../confidence_predictions.jsonl
+#   - 'consistency': Loads from estimator_results/consistency/.../consistency_k10.jsonl
+#   - 'consistency_k5': Consistency with k=5 (or any k value)
+#   - 'consistency_k20': Consistency with k=20
+#   - 'p_true': Loads from estimator_results/p_true/.../confidence_predictions.jsonl
+#   - 'linear_probe_XXX': Uses linear probe with suffix from linear_probe_configs (e.g., 'linear_probe_math')
+confidence_sources: ['oracle', 'linear_probe_math', 'verbalized']
+
+# Linear probe configurations
+# Maps probe names to their probe_suffix
+# The model name is automatically extracted from the folder being evaluated
+# Path format: estimator_results/linear_probe/{model}__{probe_suffix}/{dataset}/confidence_predictions.jsonl
+linear_probe_configs:
+  math: "trained-on-math-train-and-validated-on-math-valid"
+  # Add more probe configurations as needed
+
+# Which confidence sources to perform alpha search on
+# Empty list = no alpha search, only evaluate pure greedy
+# Example: ['oracle'] = search alphas for oracle
+search_alphas_for: []
+
+# Alpha values for interpolation (only used if search_alphas_for is non-empty)
+# alpha: 0.0 = pure greedy, 1.0 = uniform (baseline)
+test_alphas: [0.0, 0.25, 0.5, 0.75, 1.0]
+
+# Random seed for reproducible sampling
+random_seed: 42
+
+# Number of random seeds to run (for multi-seed version)
+# Each experiment runs with seeds: [random_seed, random_seed+1, ..., random_seed+num_seeds-1]
+# Results are averaged across seeds to reduce variance
+num_seeds: 10
+
+# Y-axis limits for specific (dataset, model) pairs
+# Format: "dataset__model": [ymin, ymax]
+# If not specified, y-axis will be computed adaptively based on data
+ylim_config:
+  # Example:
+  "aime25-test__Qwen3-8B-non-thinking": [0.2, 0.58]
+  "aime25-test__Olmo-3-7B-Instruct": [0.36, 0.9]
+  "aime25-test__gpt-oss-20b": [0.68, 1.0]
+  "math-500__Qwen3-8B-non-thinking": [0.84, 1.0]
+  "math-500__Olmo-3-7B-Instruct": [0.9, 1.0]
+  "math-500__gpt-oss-20b": [0.94, 1.0]
+

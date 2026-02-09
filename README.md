@@ -43,6 +43,9 @@ done
 
 Code in these scripts would also construct the training datasets for linear probes.
 
+## Metric Differences
+==TODO==
+
 ## Confidence Estimation Methods for Capability Calibration
 Currently, we support the following confidence estimation methods:
 * [Verbalized confidence](#verbalized-confidence): Asking the LLM to state the confidence as a percentage (0-100%).
@@ -91,3 +94,5 @@ uv run python scripts/consistency.py \
 
 ### Training Light-Weight (Linear) Probes
 
+## Applications
+==TODO==
