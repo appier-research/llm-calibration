@@ -47,6 +47,7 @@ Code in these scripts would also construct the training datasets for linear prob
 Currently, we support the following confidence estimation methods:
 * [Verbalized confidence](#verbalized-confidence): Asking the LLM to state the confidence as a percentage (0-100%).
 * [P(True)](#ptrue): Asking the LLM whether it can answer the query correctly by instructing it to respond with only “Yes” or “No”, extract the logprobs of these two tokens, and use the softmax probability of “Yes” as the confidence estimate.
+* [Response Consistency](#response-consistency): Set confidence as the frequency of the most frequent answer.
 
 ### Verbalized Confidence
 As an example, you can run the following command to get verbalized confidence of `Qwen/Qwen3-8B` on the `triviaqa` dataset:
@@ -76,6 +77,16 @@ uv run python scripts/ptrue.py \
     --ground_truth_jsonl "outputs/triviaqa-validation__Olmo-3-7B-Instruct/ground_truth.jsonl" \
     --output_dir "estimator_results/ptrue/triviaqa-validation__Olmo-3-7B-Instruct" \
     --max_completion_tokens 1  # should change to ~8192 for reasoning LMs (e.g., gpt-oss-20b)
+```
+### Response Consistency
+As an example, you can run the following command to get verbalized confidence of `openai/gpt-oss-20b` on the `triviaqa` dataset:
+```bash
+uv run python scripts/consistency.py \
+    --sampled_path "outputs/triviaqa-validation__gpt-oss-20b/sampled.jsonl" \
+    --ground_truth_path "outputs/triviaqa-validation__gpt-oss-20b/ground_truth.jsonl" \
+    --output_dir "estimator_results/consistency/triviaqa-validation__gpt-oss-20b" \
+    --k_values 5 10 20 \
+    --seed 42  # random seed
 ```
 
 ### Training Light-Weight (Linear) Probes
