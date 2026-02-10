@@ -8,13 +8,7 @@ Given N questions with a fixed total budget (e.g., N×B samples):
 - **Baseline**: Allocate uniformly (e.g., B samples per question)
 - **Greedy**: Allocate based on confidence - questions with lower confidence get more samples
 
-Evaluation Method: **Pass@k Strategy**: A question is correct if **ANY** of its allocated samples is correct.
-
-## Requirements
-
-```bash
-pip install numpy pandas matplotlib pyyaml
-```
+Evaluation Method: **Best-of-k Strategy**: A question is correct if **ANY** of its allocated samples is correct.
 
 ## Quick Start
 
@@ -40,6 +34,7 @@ random_seed: 42                      # For reproducible sampling
 - `baseline_samples`: Number of samples per question for uniform baseline (default: 5)
 - `random_seed`: Ensures reproducible random sampling
 - `datasets`: List of datasets to evaluate (script finds all models automatically)
+- `confidence_sources`: List of estimated confidence that the **Greedy** algoritm will use
 -  Linear interploration between uniform allocation and greedy algorithm (not included in the paper):
     - `search_alphas_for`: select confidence resources
     - `test_alphas`: tested alpha
@@ -76,24 +71,15 @@ Clustered bar plot comparing three main strategies:
 - Y-axis: Accuracy
 - Bars: baseline, greedy (with different confidence sources)
 
-### 3. (Optional) Alpha Sweep Plot: `{dataset}_alpha_sweep.png`
+### 3. Log File: `budget_allocation_log.txt`
+
+Detailed execution log with per-model, per-method results.
+
+### 4. (Optional) Alpha Sweep Plot: `{dataset}_alpha_sweep.png`
 * If set 
 Line plot showing interpolation analysis between :
 - X-axis: Alpha (0=greedy, 1=uniform)
 - Y-axis: Accuracy
 - Lines: One per model
 - Shows how accuracy changes from pure greedy to pure uniform
-
-### 4. Log File: `budget_allocation_log.txt`
-
-Detailed execution log with per-model, per-method results.
-
-## Example Usage
-
-### Custom baseline samples
-```bash
-python3 evaluate_budget_allocation.py \
-  --config default_config.yaml \
-  --baseline-samples 10
-```
 
