@@ -23,9 +23,8 @@ wandb
 hf_models
 
 # experiment results
-budget_allocation/results
-passk_simulation/results
-metric_diff/results
+applications/results
+metric_diff_results
 estimator_results/*
 
 # documents

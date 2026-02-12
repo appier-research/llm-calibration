@@ -43,10 +43,20 @@ done
 
 Code in these scripts would also construct the training datasets for linear probes.
 
+## Metric Differences
+We distinguishes response calibration target (single sampled response correctness) from capability calibration target (expected accuracy of model's output distribution). To visualize the comparison, use the scripts in [`scripts/metric_diff/`](scripts/metric_diff/). See that directory’s [README](scripts/metric_diff/README.md) for usage and configuration. The scripts will scan all models in the constructed dataset folder results from the [Construct Capability Calibration Datasets](#construct-capability-calibration-datasets) section.
+
+To reproduce the results in the paper, you can run the following command to plot the visualization results:
+```bash
+bash paper_results/metric_diff/main.sh
+```
+
+
 ## Confidence Estimation Methods for Capability Calibration
 Currently, we support the following confidence estimation methods:
 * [Verbalized confidence](#verbalized-confidence): Asking the LLM to state the confidence as a percentage (0-100%).
 * [P(True)](#ptrue): Asking the LLM whether it can answer the query correctly by instructing it to respond with only “Yes” or “No”, extract the logprobs of these two tokens, and use the softmax probability of “Yes” as the confidence estimate.
+* [Response Consistency](#response-consistency): Set confidence as the frequency of the most frequent answer.
 
 ### Verbalized Confidence
 As an example, you can run the following command to get verbalized confidence of `Qwen/Qwen3-8B` on the `triviaqa` dataset:
@@ -77,6 +87,60 @@ uv run python scripts/ptrue.py \
     --output_dir "estimator_results/ptrue/triviaqa-validation__Olmo-3-7B-Instruct" \
     --max_completion_tokens 1  # should change to ~8192 for reasoning LMs (e.g., gpt-oss-20b)
 ```
+### Response Consistency
+As an example, you can run the following command to get response-consistency confidence of `openai/gpt-oss-20b` on the `triviaqa` dataset:
+```bash
+uv run python scripts/consistency.py \
+    --sampled_path "outputs/triviaqa-validation__gpt-oss-20b/sampled.jsonl" \
+    --ground_truth_path "outputs/triviaqa-validation__gpt-oss-20b/ground_truth.jsonl" \
+    --output_dir "estimator_results/consistency/triviaqa-validation__gpt-oss-20b" \
+    --k_values 5 10 20 \
+    --seed 42  # random seed
+```
 
 ### Training Light-Weight (Linear) Probes
 
+## Applications
+
+### Pass@k Prediction
+We shows that capability-calibrated confidence can simulate pass@k performance, predicting multi-sampling performance without additional sampling. To run the simulation, use the scripts in [`applications/passk_simulation/`](applications/passk_simulation/). See that directory’s [README](applications/passk_simulation/README.md) for usage and configuration.
+
+We support two types of simulated pass@k evaluation. For the instance level pass@k performance evaluation, the evaluation metric is the Mean Square Error (MSE). You can run the following command to get the evaluated results, and modify the [`config`](applications/passk_simulation/config/instance_passk_evaluation.yaml) to specify the configuration:
+```bash
+cd applications/passk_simulation
+
+uv run python src/evaluate_instance_passk.py \
+    --config config/instance_passk_evaluation.yaml
+```
+
+To simulate the dataset-level pass@k curve, you can run the following command to get the simulated curve for math-500 dataset:
+```bash
+cd applications/passk_simulation
+
+uv run python src/run_simulation.py \
+    --config config/passk_simulation_math500.yaml
+```
+You can further modify the [`config`](applications/passk_simulation/config/passk_simulation_math500.yaml) to specify the configuration.
+
+To reproduce the results in the paper, you can run the following commands:
+```bash
+bash paper_results/applications/passk_simulation/instance_level.sh
+bash paper_results/applications/passk_simulation/dataset_level.sh
+```
+
+### Inference Budget Allocation
+Capability-calibrated confidence can guide how to allocate a fixed sampling budget across questions (e.g. more samples on low-confidence questions). To run the evaluation, use the scripts in [`applications/budget_allocation/`](applications/budget_allocation/). See that directory’s [README](applications/budget_allocation/README.md) for usage and configuration.
+
+To do the experiment, you can run the following command to do allocation and evaluate the performance across different budget sizes:
+```bash
+cd applications/budget_allocation
+
+uv run python evaluate_budget_allocation.py \
+    --config default_config.yaml
+```
+You can further modify the [`config`](applications/passk_simulation/config/passk_simulation_math500.yaml) to specify the configuration.
+
+To reproduce the results in the paper, you can run the following command:
+```bash
+bash paper_results/applications/budget_allocation/main.sh
+```
