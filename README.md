@@ -6,6 +6,7 @@ Install the dependencies:
 ```bash
 pipx install uv
 uv sync
+uv pip install torch --reinstall --index-url https://download.pytorch.org/whl/cu130  # for DGX Spark
 ```
 
 ## Construct Capability Calibration Datasets
@@ -99,6 +100,10 @@ uv run python scripts/consistency.py \
 ```
 
 ### Training Light-Weight (Linear) Probes
+First, construct the probing datasets for each model using the following command (using `Qwen/Qwen3-8B` as an example):
+```bash
+bash paper_results/linear_probes/qwen3-8b-non-thinking.sh
+```
 
 ## Applications
 
