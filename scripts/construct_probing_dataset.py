@@ -45,7 +45,7 @@ import random
 from pathlib import Path
 
 import torch
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -367,8 +367,6 @@ def run_expected_accuracy_mode(args, model, tokenizer, device, output_dir):
     
     logger.info(f"Found prompts for all {len(prompt_lookup)} examples")
     
-    # Process in batches
-    all_hidden_states = []
     all_targets = []
     all_example_ids = []
     
@@ -381,7 +379,8 @@ def run_expected_accuracy_mode(args, model, tokenizer, device, output_dir):
             "target": item["expected_accuracy"],
         })
     
-    # Process batches
+    # Process batches — save hidden states to disk per batch to avoid OOM
+    batch_idx = 0
     for i in tqdm(range(0, len(examples), args.batch_size), desc="Extracting hidden states", dynamic_ncols=True):
         batch = examples[i : i + args.batch_size]
         
@@ -389,17 +388,19 @@ def run_expected_accuracy_mode(args, model, tokenizer, device, output_dir):
         targets = [ex["target"] for ex in batch]
         example_ids_batch = [ex["example_id"] for ex in batch]
         
-        # Extract hidden states
         hidden_states = extract_last_token_hidden_states(
             model, tokenizer, prompts, device
         )
         
-        # Move to CPU and collect
-        all_hidden_states.append(hidden_states.cpu())
+        save_file(
+            {"hidden_states": hidden_states.cpu().contiguous()},
+            output_dir / f"_batch_{batch_idx:05d}.safetensors",
+        )
         all_targets.extend(targets)
         all_example_ids.extend(example_ids_batch)
+        batch_idx += 1
     
-    return all_hidden_states, all_targets, all_example_ids
+    return all_targets, all_example_ids
 
 
 def run_sample_correctness_mode(args, model, tokenizer, device, output_dir):
@@ -407,36 +408,35 @@ def run_sample_correctness_mode(args, model, tokenizer, device, output_dir):
     # Load one sample per example_id (selected by seed)
     samples = load_samples_for_correctness(args.sampled_path, args.seed)
     
-    # Process in batches
-    all_hidden_states = []
     all_targets = []
     all_sample_ids = []
     
-    # Process batches
+    # Process batches — save hidden states to disk per batch to avoid OOM
+    batch_idx = 0
     for i in tqdm(range(0, len(samples), args.batch_size), desc="Extracting hidden states", dynamic_ncols=True):
         batch = samples[i : i + args.batch_size]
         
-        # Build full conversations (prompt + assistant response)
         conversations = []
         for sample in batch:
-            # prompt is already a list of message dicts
             conv = sample["prompt"] + [{"role": "assistant", "content": sample["response"]}]
             conversations.append(conv)
         
         targets = [sample["target"] for sample in batch]
         sample_ids_batch = [sample["sample_id"] for sample in batch]
         
-        # Extract hidden states from full conversation
         hidden_states = extract_last_token_hidden_states_with_response(
             model, tokenizer, conversations, device
         )
         
-        # Move to CPU and collect
-        all_hidden_states.append(hidden_states.cpu())
+        save_file(
+            {"hidden_states": hidden_states.cpu().contiguous()},
+            output_dir / f"_batch_{batch_idx:05d}.safetensors",
+        )
         all_targets.extend(targets)
         all_sample_ids.extend(sample_ids_batch)
+        batch_idx += 1
     
-    return all_hidden_states, all_targets, all_sample_ids
+    return all_targets, all_sample_ids
 
 
 def run_verbalized_confidence_mode(args, model, tokenizer, device, output_dir):
@@ -444,36 +444,35 @@ def run_verbalized_confidence_mode(args, model, tokenizer, device, output_dir):
     # Load verbalized confidence data
     data = load_verbalized_confidence_data(args.confidence_predictions_path)
     
-    # Process in batches
-    all_hidden_states = []
     all_targets = []
     all_example_ids = []
     
-    # Process batches
+    # Process batches — save hidden states to disk per batch to avoid OOM
+    batch_idx = 0
     for i in tqdm(range(0, len(data), args.batch_size), desc="Extracting hidden states", dynamic_ncols=True):
         batch = data[i : i + args.batch_size]
         
-        # Build full conversations (prompt + assistant response)
         conversations = []
         for item in batch:
-            # prompt is already a list of message dicts
             conv = item["prompt"] + [{"role": "assistant", "content": item["response"]}]
             conversations.append(conv)
         
         targets = [item["target"] for item in batch]
         example_ids_batch = [item["example_id"] for item in batch]
         
-        # Extract hidden states from full conversation
         hidden_states = extract_last_token_hidden_states_with_response(
             model, tokenizer, conversations, device
         )
         
-        # Move to CPU and collect
-        all_hidden_states.append(hidden_states.cpu())
+        save_file(
+            {"hidden_states": hidden_states.cpu().contiguous()},
+            output_dir / f"_batch_{batch_idx:05d}.safetensors",
+        )
         all_targets.extend(targets)
         all_example_ids.extend(example_ids_batch)
+        batch_idx += 1
     
-    return all_hidden_states, all_targets, all_example_ids
+    return all_targets, all_example_ids
 
 
 def main():
@@ -506,41 +505,49 @@ def main():
     
     logger.info(f"Model loaded on {device}")
     
-    # Run the appropriate mode
+    # Run the appropriate mode (hidden states saved to per-batch files on disk)
     if args.mode == "expected_accuracy":
-        all_hidden_states, all_targets, all_ids = run_expected_accuracy_mode(
+        all_targets, all_ids = run_expected_accuracy_mode(
             args, model, tokenizer, device, output_dir
         )
     elif args.mode == "sample_correctness":
-        all_hidden_states, all_targets, all_ids = run_sample_correctness_mode(
+        all_targets, all_ids = run_sample_correctness_mode(
             args, model, tokenizer, device, output_dir
         )
     else:  # verbalized_confidence
-        all_hidden_states, all_targets, all_ids = run_verbalized_confidence_mode(
+        all_targets, all_ids = run_verbalized_confidence_mode(
             args, model, tokenizer, device, output_dir
         )
     
-    # Concatenate all hidden states
-    hidden_states_tensor = torch.cat(all_hidden_states, dim=0)
+    # Load per-batch hidden states from disk, concatenate, and save final file
+    batch_files = sorted(output_dir.glob("_batch_*.safetensors"))
+    logger.info(f"Merging {len(batch_files)} batch files...")
+    
+    chunks = [load_file(p)["hidden_states"] for p in batch_files]
+    hidden_states_tensor = torch.cat(chunks, dim=0)
+    del chunks
+    
     targets_tensor = torch.tensor(all_targets, dtype=torch.float32)
     
     logger.info(f"Hidden states shape: {hidden_states_tensor.shape}")
     logger.info(f"Targets shape: {targets_tensor.shape}")
     
-    # Save in safetensors format
+    # Save final safetensors
     logger.info(f"Saving to {output_dir}")
     
-    # Save hidden states
     save_file(
         {"hidden_states": hidden_states_tensor},
         output_dir / "hidden_states.safetensors",
     )
-    
-    # Save targets
     save_file(
         {"targets": targets_tensor},
         output_dir / "targets.safetensors",
     )
+    
+    # Clean up batch files
+    for p in batch_files:
+        p.unlink()
+    logger.info(f"Deleted {len(batch_files)} temporary batch files")
     
     # Save metadata
     metadata = {
