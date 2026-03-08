@@ -146,7 +146,7 @@ class TrainingConfig:
     early_stopping_patience: int = 10
     device: str = "cuda"
     loss_type: Literal["bce", "mse", "ce"] = "bce"
-    optimizer_type: Literal["adamw", "sgd", "lbfgs"] = "sgd"
+    optimizer_type: Literal["adamw", "sgd", "lbfgs", "closed_form"] = "sgd"
     lbfgs_max_iter: int = 20  # Max iterations per LBFGS step
     lbfgs_history_size: int = 100
     apply_sigmoid: bool = True  # Whether probe applies sigmoid (False -> use BCEWithLogitsLoss for BCE)
@@ -186,7 +186,13 @@ class ProbeTrainer:
         self.probe.to(self.device)
         
         # Setup optimizer
-        if config.optimizer_type == "adamw":
+        if config.optimizer_type == "closed_form":
+            if config.loss_type != "mse":
+                raise ValueError("closed_form optimizer requires loss_type='mse'")
+            if config.apply_sigmoid:
+                raise ValueError("closed_form optimizer requires apply_sigmoid=False")
+            self.optimizer = None
+        elif config.optimizer_type == "adamw":
             self.optimizer = torch.optim.AdamW(
                 probe.parameters(),
                 lr=config.learning_rate,
@@ -227,9 +233,9 @@ class ProbeTrainer:
         else:
             raise ValueError(f"Unknown loss type: {config.loss_type}")
         
-        # Setup learning rate scheduler (skip for LBFGS which manages its own step size)
+        # Setup learning rate scheduler (skip for LBFGS and closed_form)
         self.scheduler = None
-        if config.optimizer_type != "lbfgs" and config.lr_scheduler_type != "none":
+        if config.optimizer_type not in ("lbfgs", "closed_form") and config.lr_scheduler_type != "none":
             if config.lr_scheduler_type == "linear":
                 self.scheduler = torch.optim.lr_scheduler.LinearLR(
                     self.optimizer,
@@ -263,6 +269,9 @@ class ProbeTrainer:
         Returns:
             Dict with training history and final metrics.
         """
+        if self.config.optimizer_type == "closed_form":
+            return self._train_closed_form(train_dataset, val_dataset)
+
         # Create data loaders
         train_loader = DataLoader(
             train_dataset,
@@ -368,6 +377,86 @@ class ProbeTrainer:
             "history": history,
             "metrics": final_metrics,
         }
+
+    def _fit_closed_form(self, train_dataset: "ProbeDataset") -> float:
+        """Fit probe weights using closed-form ridge regression.
+
+        Solves: min ||Xw + b - y||² + λ||w||²
+        via the normal equations with centered data (bias is not regularized).
+
+        Returns training MSE.
+        """
+        X = train_dataset.hidden_states.to(self.device)
+        y = train_dataset.targets.to(self.device)
+
+        X = self.probe.normalize(X)
+
+        X_mean = X.mean(dim=0)
+        y_mean = y.mean()
+        X_c = X - X_mean
+        y_c = y - y_mean
+
+        n, d = X_c.shape
+        A = X_c.T @ X_c + (self.config.weight_decay * n) * torch.eye(d, device=self.device, dtype=X.dtype)
+        w = torch.linalg.solve(A, X_c.T @ y_c)
+
+        bias = y_mean - X_mean @ w
+
+        with torch.no_grad():
+            self.probe.linear.weight.copy_(w.unsqueeze(0))
+            self.probe.linear.bias.copy_(bias.unsqueeze(0))
+
+        with torch.no_grad():
+            preds = self.probe(train_dataset.hidden_states.to(self.device))
+            train_loss = nn.functional.mse_loss(preds, y).item()
+
+        return train_loss
+
+    def _train_closed_form(
+        self,
+        train_dataset: "ProbeDataset",
+        val_dataset: "ProbeDataset",
+    ) -> dict:
+        """Train using closed-form ridge regression and return results."""
+        train_loss = self._fit_closed_form(train_dataset)
+
+        val_loader = DataLoader(val_dataset, batch_size=self.config.batch_size, shuffle=False)
+        val_loss = self._validate(val_loader)
+
+        self.best_val_loss = val_loss
+        self.best_epoch = 0
+
+        if self.output_dir:
+            self.probe.save(self.output_dir / "best_probe.pt")
+
+        if self.use_wandb:
+            import wandb
+            wandb.log({"epoch": 0, "train_loss": train_loss, "val_loss": val_loss})
+
+        logger.info(f"Closed-form solve - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+
+        history = {"train_loss": [train_loss], "val_loss": [val_loss]}
+        final_metrics = {"best_val_loss": val_loss, "best_epoch": 0, "total_epochs": 1}
+
+        if self.output_dir:
+            history_path = self.output_dir / "training_history.json"
+            history_path.write_text(json.dumps({
+                "history": history,
+                "metrics": final_metrics,
+                "config": {
+                    "learning_rate": self.config.learning_rate,
+                    "weight_decay": self.config.weight_decay,
+                    "batch_size": self.config.batch_size,
+                    "num_epochs": self.config.num_epochs,
+                    "early_stopping_patience": self.config.early_stopping_patience,
+                    "device": self.config.device,
+                    "loss_type": self.config.loss_type,
+                    "optimizer_type": self.config.optimizer_type,
+                    "lr_scheduler_type": self.config.lr_scheduler_type,
+                },
+            }, indent=4))
+
+        return {"history": history, "metrics": final_metrics}
 
     def _train_epoch(self, loader: DataLoader) -> float:
         """Train for one epoch."""
@@ -483,8 +572,8 @@ class ProbeTrainer:
                     predictions = self.probe.predict_confidence(hidden_states)
                 else:
                     predictions = self.probe(hidden_states)
-                    # For BCE probes with raw logits, apply sigmoid
-                    if not self.config.apply_sigmoid:
+                    # For BCE probes with raw logits, apply sigmoid (skip for closed_form which outputs predictions directly)
+                    if not self.config.apply_sigmoid and self.config.optimizer_type != "closed_form":
                         predictions = torch.sigmoid(predictions)
                 
                 all_predictions.extend(predictions.cpu().tolist())

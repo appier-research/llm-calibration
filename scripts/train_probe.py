@@ -105,9 +105,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--optimizer",
         type=str,
-        choices=["adamw", "sgd", "lbfgs"],
+        choices=["adamw", "sgd", "lbfgs", "closed_form"],
         default="adamw",
-        help="Optimizer (default: adamw)",
+        help="Optimizer (default: adamw). 'closed_form' uses ridge regression normal equations (requires --loss mse --no_apply_sigmoid --probe_type linear).",
     )
     parser.add_argument(
         "--lbfgs_max_iter",
@@ -620,6 +620,15 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
     
+    # Validate closed_form constraints
+    if args.optimizer == "closed_form":
+        if args.probe_type != "linear":
+            raise ValueError("closed_form optimizer requires --probe_type linear")
+        if args.loss != "mse":
+            raise ValueError("closed_form optimizer requires --loss mse")
+        if args.apply_sigmoid:
+            raise ValueError("closed_form optimizer requires --no_apply_sigmoid")
+
     train_dir = Path(args.train_dir)
     val_dir = Path(args.val_dir)
     output_dir = Path(args.output_dir)
