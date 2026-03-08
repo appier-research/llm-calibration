@@ -10,5 +10,4 @@ hidden_state_mode: "last_token"
 
 # API-specific settings
 timeout: 7200
-max_retries: 3
-
+max_retries: 10
