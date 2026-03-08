@@ -100,7 +100,7 @@ uv run python scripts/consistency.py \
 ```
 
 ### Training Light-Weight (Linear) Probes
-First, construct the probing datasets for each model using the following command (using `Qwen/Qwen3-8B` as an example):
+Please refer to the following script for constructing probing datasets, training linear probes, and evaluating the performance of the trained probes (using `Qwen/Qwen3-8B` as an example):
 ```bash
 bash paper_results/linear_probes/qwen3-8b-non-thinking.sh
 ```
