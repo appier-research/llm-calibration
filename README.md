@@ -1,11 +1,12 @@
 # On Calibration of Large Language Models: From Response To Capability
-This is the official codebase for the paper ["On Calibration of Large Language Models: From Response To Capability"](https://drive.google.com/file/d/1my8A3HYPHKAVMmBuCWEChYm1ASob19lc/view?usp=sharing) (Google Drive link, arXiv version coming soon).
+This is the official codebase for the paper ["On Calibration of Large Language Models: From Response To Capability"](https://arxiv.org/abs/2602.13540).
 
 ## Setup
 Install the dependencies:
 ```bash
 pipx install uv
 uv sync
+uv pip install torch --reinstall --index-url https://download.pytorch.org/whl/cu130  # for DGX Spark
 ```
 
 ## Construct Capability Calibration Datasets
@@ -99,6 +100,10 @@ uv run python scripts/consistency.py \
 ```
 
 ### Training Light-Weight (Linear) Probes
+Please refer to the following script for constructing probing datasets, training linear probes, and evaluating the performance of the trained probes (using `Qwen/Qwen3-8B` as an example):
+```bash
+bash paper_results/linear_probes/qwen3-8b-non-thinking.sh
+```
 
 ## Applications
 

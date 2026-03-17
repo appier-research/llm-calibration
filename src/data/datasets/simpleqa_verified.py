@@ -269,7 +269,7 @@ class SimpleQAVerifiedDataset(BaseDataset):
         messages = [{"role": "user", "content": prompt}]
         output = await self.llm_judge_model.generate_from_messages_async(
             messages=messages,
-            max_tokens=16000,
+            max_tokens=32700,
             temperature=1.0,
             top_p=1.0,
         )
