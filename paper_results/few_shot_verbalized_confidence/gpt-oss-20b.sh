@@ -8,7 +8,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MAP_JSON="${SCRIPT_DIR}/test_to_train_pool.json"
 
-base_url="${BASE_URL:-http://TBD/v1}"
+base_url="${BASE_URL:-http://213.173.103.18:16505/v1}"
 model="openai/gpt-oss-20b"
 model_name="gpt-oss-20b"
 few_shot_k="${FEW_SHOT_K:-3}"
@@ -18,11 +18,11 @@ few_shot_seed="${FEW_SHOT_SEED:-42}"
 datasets=(
   "triviaqa-validation"
   "simpleqa-verified"
-  "gsm8k-test"
-  "math-500"
-  "aime25-test"
-  "mmlu-validation"
-  "gpqa-diamond"
+  #"gsm8k-test"
+  #"math-500"
+  #"aime25-test"
+  #"mmlu-validation"
+  #"gpqa-diamond"
 )
 
 for dataset in "${datasets[@]}"; do

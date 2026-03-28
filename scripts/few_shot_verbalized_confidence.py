@@ -13,6 +13,7 @@ Usage:
         --train_ground_truth_jsonl "outputs/gsm8k-train__gpt-oss-20b/ground_truth.jsonl" \
         --few_shot_k 5 \
         --few_shot_seed 42 \
+        --few_shot_sampling_strategy stratified \
         --output_dir "estimator_results/few_shot_verbalized_confidence/math-500__gpt-oss-20b" \
         --max_completion_tokens 5000
 
@@ -510,18 +511,22 @@ def write_few_shot_meta(
     *,
     few_shot_k: int,
     few_shot_seed: int,
+    few_shot_sampling_strategy: str,
     train_ground_truth_jsonl: str,
     demo_example_ids: list[str],
+    demo_confidences: list[float],
 ) -> None:
     meta = {
         "few_shot_k": few_shot_k,
         "few_shot_seed": few_shot_seed,
+        "few_shot_sampling_strategy": few_shot_sampling_strategy,
         "train_ground_truth_jsonl": train_ground_truth_jsonl,
         "demo_example_ids": demo_example_ids,
+        "demo_confidences": demo_confidences,
     }
     with open(path, "w") as f:
         json.dump(meta, f, indent=2)
-    print(f"Wrote {path} with demo example_ids: {demo_example_ids}")
+    print(f"Wrote {path.name} with {len(demo_example_ids)} demo IDs and confidences")
 
 
 def main() -> None:
@@ -547,6 +552,13 @@ def main() -> None:
     parser.add_argument("--few_shot_k", type=int, required=True)
     parser.add_argument("--few_shot_seed", type=int, required=True)
     parser.add_argument(
+        "--few_shot_sampling_strategy",
+        type=str,
+        default="stratified",
+        choices=["stratified", "random"],
+        help="Sampling strategy: 'stratified' for diversity across confidence bins, 'random' for uniform sampling (default: stratified)",
+    )
+    parser.add_argument(
         "--output_dir",
         type=str,
         required=True,
@@ -567,16 +579,23 @@ def main() -> None:
             train_rows.append(json.loads(line))
     print(f"Loaded {len(train_rows)} train pool examples from {args.train_ground_truth_jsonl}")
 
-    demo_examples = sample_few_shot_demos(train_rows, args.few_shot_k, args.few_shot_seed)
+    demo_examples = sample_few_shot_demos(
+        train_rows, args.few_shot_k, args.few_shot_seed, strategy=args.few_shot_sampling_strategy
+    )
     demo_ids = [ex["example_id"] for ex in demo_examples]
-    print(f"Sampled {len(demo_examples)} few-shot demos (seed={args.few_shot_seed}): {demo_ids}")
+    demo_confidences = [ex["expected_accuracy"] for ex in demo_examples]
+    print(f"Sampled {len(demo_examples)} few-shot demos (strategy={args.few_shot_sampling_strategy}, seed={args.few_shot_seed})")
+    print(f"  Demo IDs: {demo_ids}")
+    print(f"  Demo confidences: {[f'{c:.3f}' for c in demo_confidences]} (min={min(demo_confidences):.3f}, max={max(demo_confidences):.3f})")
 
     write_few_shot_meta(
         meta_path,
         few_shot_k=args.few_shot_k,
         few_shot_seed=args.few_shot_seed,
+        few_shot_sampling_strategy=args.few_shot_sampling_strategy,
         train_ground_truth_jsonl=args.train_ground_truth_jsonl,
         demo_example_ids=demo_ids,
+        demo_confidences=demo_confidences,
     )
 
     examples: list[dict] = []
