@@ -1,0 +1,9 @@
+{
+  "triviaqa-validation": "triviaqa-train",
+  "simpleqa-verified": "triviaqa-train",
+  "gsm8k-test": "gsm8k-train",
+  "math-500": "math-train",
+  "aime25-test": "gsm8k-train",
+  "mmlu-validation": "gsm8k-train",
+  "gpqa-diamond": "gsm8k-train"
+}
