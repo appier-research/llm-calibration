@@ -1,4 +1,5 @@
 # Improved Verbalized Confidence and P(True)
+**Caption**: For verbalized confidence and P(True), "train on TriviaQA / GSM8K / MATH" means performing isotonic regression on the training set of TriviaQA / GSM8K / MATH.
 
 ## Olmo-3-7B-Instruct
 
