@@ -1,0 +1,36 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Environments
+.venv
+.vscode
+.cursor
+
+# Logs
+outputs/*
+estimator_results/*
+wandb
+
+# Secrets
+.env
+
+# Big files
+hf_models
+
+# experiment results
+applications/results
+metric_diff_results
+estimator_results/*
+
+# documents
+#*.pdf
+
+# test blog page locally
+docs/_site
+docs/.jekyll-metadata
+docs/Gemfile*
