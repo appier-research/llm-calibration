@@ -42,6 +42,7 @@ import argparse
 import json
 import logging
 import random
+import re
 from pathlib import Path
 
 import torch
@@ -280,6 +281,18 @@ def subsample_unique(
     return sampled
 
 
+# Matches any harmony / chat-template special token like <|channel|>, <|start|>,
+# <|message|>, <|end|>, <|return|>, <|im_start|>, etc. Some models (notably
+# gpt-oss) occasionally leak these raw tokens into their generated text, and
+# their chat template then refuses to render the assistant message. Stripping
+# them is a no-op for clean responses.
+_HARMONY_TOKEN_RE = re.compile(r"<\|[^|]*\|>")
+
+
+def strip_harmony_tokens(text: str) -> str:
+    return _HARMONY_TOKEN_RE.sub("", text)
+
+
 def extract_last_token_hidden_states(
     model,
     tokenizer,
@@ -422,14 +435,25 @@ def run_expected_accuracy_mode(args, model, tokenizer, device, output_dir):
             "target": item["expected_accuracy"],
         })
     
-    # Process batches — save hidden states to disk per batch to avoid OOM
+    # Process batches — save hidden states to disk per batch to avoid OOM.
+    # Skip the forward pass for batches whose file already exists (resume).
     batch_idx = 0
+    n_skipped = 0
     for i in tqdm(range(0, len(examples), args.batch_size), desc="Extracting hidden states", dynamic_ncols=True):
         batch = examples[i : i + args.batch_size]
         
-        prompts = [ex["prompt"] for ex in batch]
         targets = [ex["target"] for ex in batch]
         example_ids_batch = [ex["example_id"] for ex in batch]
+        all_targets.extend(targets)
+        all_example_ids.extend(example_ids_batch)
+        
+        batch_path = output_dir / f"_batch_{batch_idx:05d}.safetensors"
+        if batch_path.exists():
+            n_skipped += 1
+            batch_idx += 1
+            continue
+        
+        prompts = [ex["prompt"] for ex in batch]
         
         hidden_states = extract_last_token_hidden_states(
             model, tokenizer, prompts, device
@@ -437,11 +461,12 @@ def run_expected_accuracy_mode(args, model, tokenizer, device, output_dir):
         
         save_file(
             {"hidden_states": hidden_states.cpu().contiguous()},
-            output_dir / f"_batch_{batch_idx:05d}.safetensors",
+            batch_path,
         )
-        all_targets.extend(targets)
-        all_example_ids.extend(example_ids_batch)
         batch_idx += 1
+    
+    if n_skipped > 0:
+        logger.info(f"Resumed: skipped {n_skipped} already-completed batches")
     
     return all_targets, all_example_ids
 
@@ -457,18 +482,31 @@ def run_sample_correctness_mode(args, model, tokenizer, device, output_dir):
     all_targets = []
     all_sample_ids = []
     
-    # Process batches — save hidden states to disk per batch to avoid OOM
+    # Process batches — save hidden states to disk per batch to avoid OOM.
+    # If a batch file already exists on disk (resume case), skip the forward
+    # pass but still track targets/ids so the final merge is consistent.
     batch_idx = 0
+    n_skipped = 0
     for i in tqdm(range(0, len(samples), args.batch_size), desc="Extracting hidden states", dynamic_ncols=True):
         batch = samples[i : i + args.batch_size]
         
-        conversations = []
-        for sample in batch:
-            conv = sample["prompt"] + [{"role": "assistant", "content": sample["response"]}]
-            conversations.append(conv)
-        
         targets = [sample["target"] for sample in batch]
         sample_ids_batch = [sample["sample_id"] for sample in batch]
+        all_targets.extend(targets)
+        all_sample_ids.extend(sample_ids_batch)
+        
+        batch_path = output_dir / f"_batch_{batch_idx:05d}.safetensors"
+        if batch_path.exists():
+            n_skipped += 1
+            batch_idx += 1
+            continue
+        
+        conversations = []
+        for sample in batch:
+            conv = sample["prompt"] + [
+                {"role": "assistant", "content": strip_harmony_tokens(sample["response"])}
+            ]
+            conversations.append(conv)
         
         hidden_states = extract_last_token_hidden_states_with_response(
             model, tokenizer, conversations, device
@@ -476,11 +514,12 @@ def run_sample_correctness_mode(args, model, tokenizer, device, output_dir):
         
         save_file(
             {"hidden_states": hidden_states.cpu().contiguous()},
-            output_dir / f"_batch_{batch_idx:05d}.safetensors",
+            batch_path,
         )
-        all_targets.extend(targets)
-        all_sample_ids.extend(sample_ids_batch)
         batch_idx += 1
+    
+    if n_skipped > 0:
+        logger.info(f"Resumed: skipped {n_skipped} already-completed batches")
     
     return all_targets, all_sample_ids
 
@@ -496,18 +535,30 @@ def run_verbalized_confidence_mode(args, model, tokenizer, device, output_dir):
     all_targets = []
     all_example_ids = []
     
-    # Process batches — save hidden states to disk per batch to avoid OOM
+    # Process batches — save hidden states to disk per batch to avoid OOM.
+    # Skip the forward pass for batches whose file already exists (resume).
     batch_idx = 0
+    n_skipped = 0
     for i in tqdm(range(0, len(data), args.batch_size), desc="Extracting hidden states", dynamic_ncols=True):
         batch = data[i : i + args.batch_size]
         
-        conversations = []
-        for item in batch:
-            conv = item["prompt"] + [{"role": "assistant", "content": item["response"]}]
-            conversations.append(conv)
-        
         targets = [item["target"] for item in batch]
         example_ids_batch = [item["example_id"] for item in batch]
+        all_targets.extend(targets)
+        all_example_ids.extend(example_ids_batch)
+        
+        batch_path = output_dir / f"_batch_{batch_idx:05d}.safetensors"
+        if batch_path.exists():
+            n_skipped += 1
+            batch_idx += 1
+            continue
+        
+        conversations = []
+        for item in batch:
+            conv = item["prompt"] + [
+                {"role": "assistant", "content": strip_harmony_tokens(item["response"])}
+            ]
+            conversations.append(conv)
         
         hidden_states = extract_last_token_hidden_states_with_response(
             model, tokenizer, conversations, device
@@ -515,11 +566,12 @@ def run_verbalized_confidence_mode(args, model, tokenizer, device, output_dir):
         
         save_file(
             {"hidden_states": hidden_states.cpu().contiguous()},
-            output_dir / f"_batch_{batch_idx:05d}.safetensors",
+            batch_path,
         )
-        all_targets.extend(targets)
-        all_example_ids.extend(example_ids_batch)
         batch_idx += 1
+    
+    if n_skipped > 0:
+        logger.info(f"Resumed: skipped {n_skipped} already-completed batches")
     
     return all_targets, all_example_ids
 
