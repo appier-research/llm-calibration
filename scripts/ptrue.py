@@ -57,7 +57,7 @@ def strip_all_lines(text: str) -> str:
     return "\n".join(line.strip() for line in text.split("\n"))
 
 
-def get_prompt(question: str) -> str:
+def get_cc_prompt(question: str) -> str:
     prompt = f"""
     Question: {question}
 
@@ -66,6 +66,15 @@ def get_prompt(question: str) -> str:
     """.strip()
     return strip_all_lines(prompt)
 
+def get_rc_prompt(question: str, response: str) -> str:
+    prompt = f"""
+    Question: {question}
+    Your response: {response}
+
+    Is your response correct?
+    Answer with only a single word: Yes or No.
+    """
+    return strip_all_lines(prompt)
 
 def find_answer_token_index(tokens: list[str]) -> int:
     """
@@ -241,9 +250,15 @@ async def predict_confidence(
     temperature: float = 1.0,
     top_p: float = 1.0,
     top_logprobs: int = 20,
+    calibration_type: str = "cc",
 ) -> PTrueConfidencePrediction:
     """Get P(True) confidence for a single example with retries."""
-    prompt_text = get_prompt(example["question"])
+    if calibration_type == "cc":
+        prompt_text = get_cc_prompt(example["question"])
+    elif calibration_type == "rc":
+        prompt_text = get_rc_prompt(example["question"], example["response"])
+    else:
+        raise ValueError(f"Invalid calibration type: {calibration_type}")
     messages = [{"role": "user", "content": prompt_text}]
 
     response_text = ""
@@ -335,6 +350,7 @@ async def run_all_predictions(
     temperature: float = 1.0,
     top_p: float = 1.0,
     top_logprobs: int = 20,
+    calibration_type: str = "cc",
 ) -> list[PTrueConfidencePrediction]:
     """Run predictions with sliding window concurrency and streaming output."""
     # Filter out already processed examples
@@ -356,6 +372,7 @@ async def run_all_predictions(
             temperature=temperature,
             top_p=top_p,
             top_logprobs=top_logprobs,
+            calibration_type=calibration_type,
         )
         async with write_lock:
             with open(output_path, "a") as f:
@@ -460,6 +477,7 @@ def main():
     parser.add_argument("--base_url", type=str, required=True)
     parser.add_argument("--max_concurrent", type=int, default=500)
     parser.add_argument("--timeout", type=int, default=1800)
+    parser.add_argument("--calibration_type", type=str, default="cc", choices=["cc", "rc"])
     parser.add_argument(
         "--ground_truth_jsonl",
         type=str,
@@ -499,9 +517,9 @@ def main():
     # Setup paths
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    predictions_path = output_dir / "confidence_predictions.jsonl"
-    metrics_path = output_dir / "evaluation_metrics.json"
-    diagram_path = output_dir / "reliability_diagram.png"
+    predictions_path = output_dir / f"confidence_predictions_{args.calibration_type}.jsonl"
+    metrics_path = output_dir / f"evaluation_metrics_{args.calibration_type}.json"
+    diagram_path = output_dir / f"reliability_diagram_{args.calibration_type}.png"
 
     # Load ground truth examples
     examples = []
@@ -509,6 +527,24 @@ def main():
         for line in f:
             examples.append(json.loads(line))
     print(f"Loaded {len(examples)} examples from {args.ground_truth_jsonl}")
+
+    # Load a sampled response for each example
+    if args.calibration_type == "rc":
+        response_jsonl = Path(args.ground_truth_jsonl).parent / "sampled.jsonl"
+        responses = dict()  # example_id -> response
+        with open(response_jsonl) as f:
+            for line in f:
+                data = json.loads(line)
+                example_id = int(data["example_id"].split("_")[-1])
+                if example_id not in responses:
+                    responses[example_id] = data["response"]
+                    if len(responses) == len(examples):
+                        break
+        for example in examples:
+            example_id = int(example["example_id"].split("_")[-1])
+            response = responses[example_id]
+            example["response"] = response
+        print(f"Loaded {len(responses)} responses from {response_jsonl}")
 
     # Archive existing files if they exist
     reparse_and_archive_existing(
@@ -538,6 +574,7 @@ def main():
             temperature=args.temperature,
             top_p=args.top_p,
             top_logprobs=args.top_logprobs,
+            calibration_type=args.calibration_type,
         )
     )
 
