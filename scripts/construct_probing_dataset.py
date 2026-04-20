@@ -119,7 +119,13 @@ def parse_args() -> argparse.Namespace:
         "--seed",
         type=int,
         default=0,
-        help="Random seed for selecting which sampled_id to use per example_id (sample_correctness mode)",
+        help="Random seed for selecting which sampled_id to use per example_id (sample_correctness mode), and for --n subsampling",
+    )
+    parser.add_argument(
+        "--n",
+        type=int,
+        default=None,
+        help="If set, randomly subsample N instances with unique example_ids from all instances (uses --seed for determinism)",
     )
     
     args = parser.parse_args()
@@ -195,6 +201,7 @@ def load_samples_for_correctness(sampled_path: str, seed: int = 0) -> list[dict]
                 samples_by_example[example_id] = []
             
             samples_by_example[example_id].append({
+                "example_id": example_id,
                 "sample_id": f"{example_id}_{item['sampled_id']}",
                 "prompt": item["prompt"],
                 "response": item["response"],
@@ -238,6 +245,39 @@ def load_verbalized_confidence_data(confidence_predictions_path: str) -> list[di
     
     logger.info(f"Loaded {len(data)} examples")
     return data
+
+
+def subsample_unique(
+    items: list[dict], n: int, seed: int, id_key: str = "example_id"
+) -> list[dict]:
+    """
+    Randomly subsample `n` items such that all `id_key` values are unique.
+    
+    If items contain duplicate ids, the first occurrence (in input order) is kept.
+    Sampling is deterministic given `seed`. The returned items preserve the
+    original relative order.
+    """
+    seen = set()
+    unique_items = []
+    for item in items:
+        key = item[id_key]
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_items.append(item)
+    
+    if n >= len(unique_items):
+        logger.info(
+            f"Requested n={n} >= available unique {id_key}s ({len(unique_items)}); "
+            f"using all {len(unique_items)} items."
+        )
+        return unique_items
+    
+    rng = random.Random(seed)
+    indices = sorted(rng.sample(range(len(unique_items)), n))
+    sampled = [unique_items[i] for i in indices]
+    logger.info(f"Subsampled {n} items with unique {id_key} (seed={seed})")
+    return sampled
 
 
 def extract_last_token_hidden_states(
@@ -356,6 +396,9 @@ def run_expected_accuracy_mode(args, model, tokenizer, device, output_dir):
     ground_truth = load_ground_truth(args.ground_truth_path)
     logger.info(f"Loaded {len(ground_truth)} examples")
     
+    if args.n is not None:
+        ground_truth = subsample_unique(ground_truth, args.n, args.seed)
+    
     # Build prompt lookup
     example_ids = {item["example_id"] for item in ground_truth}
     prompt_lookup = build_prompt_lookup(args.sampled_path, example_ids)
@@ -408,6 +451,9 @@ def run_sample_correctness_mode(args, model, tokenizer, device, output_dir):
     # Load one sample per example_id (selected by seed)
     samples = load_samples_for_correctness(args.sampled_path, args.seed)
     
+    if args.n is not None:
+        samples = subsample_unique(samples, args.n, args.seed)
+    
     all_targets = []
     all_sample_ids = []
     
@@ -443,6 +489,9 @@ def run_verbalized_confidence_mode(args, model, tokenizer, device, output_dir):
     """Run the verbalized_confidence mode: probe on expected_accuracy from confidence_predictions.jsonl."""
     # Load verbalized confidence data
     data = load_verbalized_confidence_data(args.confidence_predictions_path)
+    
+    if args.n is not None:
+        data = subsample_unique(data, args.n, args.seed)
     
     all_targets = []
     all_example_ids = []
