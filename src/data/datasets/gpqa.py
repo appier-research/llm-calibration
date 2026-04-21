@@ -38,53 +38,60 @@ class GPQADataset(BaseDataset):
     def verifier_type(self) -> str:
         return "string_match"
 
+    def _build_example(self, item: dict, i: int, *, id_prefix: str) -> DataExample:
+        """
+        Build a DataExample from a raw GPQA HF item.
+
+        Shuffles the 4 choices deterministically using ``self.seed + i`` so that
+        subclasses (train/valid) can reuse the same formatting logic.
+        """
+        idx_to_letter = {0: "A", 1: "B", 2: "C", 3: "D"}
+
+        # Gather all choices (correct answer + 3 incorrect)
+        choices = [
+            item["Correct Answer"],
+            item["Incorrect Answer 1"],
+            item["Incorrect Answer 2"],
+            item["Incorrect Answer 3"],
+        ]
+
+        # Shuffle choices deterministically using seed + example index
+        rng = random.Random((self.seed or 0) + i)
+        correct_idx = 0  # Correct answer is at index 0 before shuffle
+
+        indices = list(range(4))
+        rng.shuffle(indices)
+
+        shuffled_choices = [choices[idx] for idx in indices]
+        new_correct_idx = indices.index(correct_idx)
+        answer = idx_to_letter[new_correct_idx]
+
+        # Build formatted question with choices
+        question = item["Question"]
+        formatted_question = f"{question}\n"
+        for j, choice in enumerate(shuffled_choices):
+            formatted_question += f"{idx_to_letter[j]}. {choice}\n"
+
+        return DataExample(
+            id=f"{id_prefix}_{i}",
+            question=formatted_question.strip(),
+            answer=answer,
+            metadata={
+                "subdomain": item.get("Subdomain", ""),
+                "explanation": item.get("Explanation", ""),
+                "choices": shuffled_choices,
+                "record_id": item.get("Record ID", ""),
+            },
+        )
+
     def _load_examples(self) -> list[DataExample]:
         """Load GPQA from HuggingFace."""
         dataset = load_dataset(self.hf_path, self.hf_name, split=self.split)
-        
-        idx_to_letter = {0: "A", 1: "B", 2: "C", 3: "D"}
-        
-        examples = []
-        for i, item in enumerate(dataset):
-            # Gather all choices (correct answer + 3 incorrect)
-            choices = [
-                item["Correct Answer"],
-                item["Incorrect Answer 1"],
-                item["Incorrect Answer 2"],
-                item["Incorrect Answer 3"],
-            ]
-            
-            # Shuffle choices deterministically using seed + example index
-            rng = random.Random((self.seed or 0) + i)
-            correct_idx = 0  # Correct answer is at index 0 before shuffle
-            
-            # Create indices and shuffle them
-            indices = list(range(4))
-            rng.shuffle(indices)
-            
-            # Reorder choices and find new position of correct answer
-            shuffled_choices = [choices[idx] for idx in indices]
-            new_correct_idx = indices.index(correct_idx)
-            answer = idx_to_letter[new_correct_idx]
-            
-            # Build formatted question with choices
-            question = item["Question"]
-            formatted_question = f"{question}\n"
-            for j, choice in enumerate(shuffled_choices):
-                formatted_question += f"{idx_to_letter[j]}. {choice}\n"
-            
-            examples.append(DataExample(
-                id=f"gpqa_{self.hf_name}_{self.split}_{i}",
-                question=formatted_question.strip(),
-                answer=answer,
-                metadata={
-                    "subdomain": item.get("Subdomain", ""),
-                    "explanation": item.get("Explanation", ""),
-                    "choices": shuffled_choices,
-                },
-            ))
-        
-        return examples
+        id_prefix = f"gpqa_{self.hf_name}_{self.split}"
+        return [
+            self._build_example(item, i, id_prefix=id_prefix)
+            for i, item in enumerate(dataset)
+        ]
 
     def extract_answer(self, response: str) -> Any:
         """
