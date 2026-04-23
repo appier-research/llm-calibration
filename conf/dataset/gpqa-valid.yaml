@@ -1,0 +1,13 @@
+# GPQA (validation): difference set gpqa_extended (N=546) - gpqa_main (N=448) = N=98
+# @package _global_.dataset
+
+_target_: src.data.datasets.gpqa_valid.GPQAValidDataset
+
+split: "train"  # GPQA only has a train split on HF
+max_examples: null
+seed: ${seed}
+
+# Dataset-specific settings
+hf_path: "Idavidrein/gpqa"
+superset_name: "gpqa_extended"
+exclude_name: "gpqa_main"

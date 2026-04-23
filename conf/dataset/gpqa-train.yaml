@@ -1,0 +1,13 @@
+# GPQA (train): difference set gpqa_main (N=448) - gpqa_diamond (N=198) = N=250
+# @package _global_.dataset
+
+_target_: src.data.datasets.gpqa_train.GPQATrainDataset
+
+split: "train"  # GPQA only has a train split on HF
+max_examples: null
+seed: ${seed}
+
+# Dataset-specific settings
+hf_path: "Idavidrein/gpqa"
+superset_name: "gpqa_main"
+exclude_name: "gpqa_diamond"
