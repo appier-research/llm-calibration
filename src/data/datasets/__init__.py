@@ -1,4 +1,5 @@
 from .aime25 import AIME25Dataset
+from .aime_test import AIMETestDataset
 from .aime_train import AIMETrainDataset
 from .gpqa import GPQADataset
 from .gpqa_train import GPQATrainDataset
@@ -15,6 +16,7 @@ from .triviaqa import TriviaQADataset
 
 __all__ = [
     "AIME25Dataset",
+    "AIMETestDataset",
     "AIMETrainDataset",
     "GPQADataset",
     "GPQATrainDataset",

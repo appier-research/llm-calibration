@@ -1,0 +1,29 @@
+# AIME (test): combined AIME 2024 + 2025 + 2026 = 90 problems
+# @package _global_.dataset
+
+_target_: src.data.datasets.aime_test.AIMETestDataset
+
+split: "test"  # logical split name; per-source HF split lives in ``sources`` below
+max_examples: null  # Set for debugging, e.g., 10
+seed: ${seed}
+
+# Dataset-specific settings: three source repos with per-repo column mappings.
+sources:
+  - hf_path: "HuggingFaceH4/aime_2024"
+    split: "train"
+    year: 2024
+    question_field: "problem"
+    answer_field: "answer"
+    id_field: "id"
+  - hf_path: "math-ai/aime25"
+    split: "test"
+    year: 2025
+    question_field: "problem"
+    answer_field: "answer"
+    id_field: "id"
+  - hf_path: "MathArena/aime_2026"
+    split: "train"
+    year: 2026
+    question_field: "problem"
+    answer_field: "answer"
+    id_field: "problem_idx"
