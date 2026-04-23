@@ -8,6 +8,7 @@ from .math_500 import Math500Dataset
 from .math_train import MathTrainDataset
 from .math_valid import MathValidDataset
 from .mmlu import MMLUDataset
+from .simpleqa_train import SimpleQATrainDataset
 from .simpleqa_verified import SimpleQAVerifiedDataset
 from .triviaqa import TriviaQADataset
 
@@ -22,6 +23,7 @@ __all__ = [
     "MathTrainDataset",
     "MathValidDataset",
     "MMLUDataset",
+    "SimpleQATrainDataset",
     "SimpleQAVerifiedDataset",
     "TriviaQADataset",
 ]

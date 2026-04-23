@@ -1,0 +1,18 @@
+# SimpleQA (train): difference set llamastack/simpleqa[train] (N=4326)
+# minus google/simpleqa-verified[eval] (N=1000) = N=3326 train instances.
+# @package _global_.dataset
+
+_target_: src.data.datasets.simpleqa_train.SimpleQATrainDataset
+
+split: "train"  # llamastack/simpleqa only has a train split
+max_examples: null  # Set for debugging, e.g., 100
+seed: ${seed}
+
+# Dataset-specific settings
+hf_path: "llamastack/simpleqa"
+exclude_hf_path: "google/simpleqa-verified"
+exclude_split: "eval"
+verification_mode: "string_match"  # or "llm_judge"
+llm_judge_model: "openai/gpt-oss-20b"
+llm_judge_base_url: null
+llm_judge_max_concurrent: 1000
