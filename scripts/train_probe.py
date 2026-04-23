@@ -57,8 +57,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--val_dir",
         type=str,
-        required=True,
-        help="Directory with validation probing dataset",
+        default=None,
+        help="Directory with validation probing dataset. Mutually exclusive with --val_num_examples.",
+    )
+    parser.add_argument(
+        "--val_num_examples",
+        type=int,
+        default=None,
+        help=(
+            "If set, sample this many validation instances from the training set "
+            "(using args.seed) instead of loading a separate --val_dir. Must be "
+            "<= 0.5 * total training instances. Mutually exclusive with --val_dir."
+        ),
     )
     parser.add_argument(
         "--output_dir",
@@ -250,6 +260,14 @@ def parse_args() -> argparse.Namespace:
     if args.no_apply_sigmoid:
         args.apply_sigmoid = False
     
+    # Validate --val_dir / --val_num_examples (exactly one must be provided)
+    if args.val_dir is None and args.val_num_examples is None:
+        parser.error("Must specify either --val_dir or --val_num_examples.")
+    if args.val_dir is not None and args.val_num_examples is not None:
+        parser.error("--val_dir and --val_num_examples are mutually exclusive.")
+    if args.val_num_examples is not None and args.val_num_examples <= 0:
+        parser.error("--val_num_examples must be a positive integer.")
+    
     return args
 
 def load_k_samples_from_summary(train_dir: Path) -> int:
@@ -321,13 +339,15 @@ def create_probe(probe_type: str, input_dim: int, args: argparse.Namespace):
 def train_layer(
     layer_idx: int,
     train_dir: Path,
-    val_dir: Path,
+    val_dir: Path | None,
     output_dir: Path,
     args: argparse.Namespace,
     hidden_dim: int,
     use_wandb: bool,
     subsample_indices: torch.Tensor | None = None,
     simulated_k: int | None = None,
+    train_split_indices: torch.Tensor | None = None,
+    val_split_indices: torch.Tensor | None = None,
 ) -> dict:
     """Train a probe for a single layer."""
     logger.info(f"Training probe for layer {layer_idx}")
@@ -338,9 +358,20 @@ def train_layer(
     
     # Load datasets for this layer
     train_dataset = ProbeDataset.from_safetensors(train_dir, layer_idx)
-    val_dataset = ProbeDataset.from_safetensors(val_dir, layer_idx)
+    if val_split_indices is not None:
+        # Carve validation out of the training set using --val_num_examples
+        val_dataset = ProbeDataset(
+            train_dataset.hidden_states[val_split_indices],
+            train_dataset.targets[val_split_indices],
+        )
+        train_dataset = ProbeDataset(
+            train_dataset.hidden_states[train_split_indices],
+            train_dataset.targets[train_split_indices],
+        )
+    else:
+        val_dataset = ProbeDataset.from_safetensors(val_dir, layer_idx)
     
-    # Subsample training set if requested
+    # Subsample training set if requested (applied after val split)
     if subsample_indices is not None:
         train_dataset = ProbeDataset(
             train_dataset.hidden_states[subsample_indices],
@@ -410,7 +441,8 @@ def train_layer(
                 "simulated_k": simulated_k,
                 "num_classes": args.num_classes,
                 "train_dir": str(train_dir),
-                "val_dir": str(val_dir),
+                "val_dir": str(val_dir) if val_dir is not None else None,
+                "val_num_examples": args.val_num_examples,
             },
             reinit=True,
         )
@@ -466,13 +498,15 @@ def train_layer(
 def train_pooled(
     pooling: str,
     train_dir: Path,
-    val_dir: Path,
+    val_dir: Path | None,
     output_dir: Path,
     args: argparse.Namespace,
     hidden_dim: int,
     use_wandb: bool,
     subsample_indices: torch.Tensor | None = None,
     simulated_k: int | None = None,
+    train_split_indices: torch.Tensor | None = None,
+    val_split_indices: torch.Tensor | None = None,
 ) -> dict:
     """Train a probe on hidden states pooled across all layers."""
     logger.info(f"Training probe with {pooling} pooling across layers")
@@ -483,11 +517,22 @@ def train_pooled(
     
     # Load datasets with pooling
     train_dataset = ProbeDataset.from_safetensors_pooled(train_dir, pooling)
-    val_dataset = ProbeDataset.from_safetensors_pooled(val_dir, pooling)
+    if val_split_indices is not None:
+        # Carve validation out of the training set using --val_num_examples
+        val_dataset = ProbeDataset(
+            train_dataset.hidden_states[val_split_indices],
+            train_dataset.targets[val_split_indices],
+        )
+        train_dataset = ProbeDataset(
+            train_dataset.hidden_states[train_split_indices],
+            train_dataset.targets[train_split_indices],
+        )
+    else:
+        val_dataset = ProbeDataset.from_safetensors_pooled(val_dir, pooling)
     logger.info(f"  Train dataset: {train_dataset.hidden_states.shape}, {train_dataset.targets.shape}")
     logger.info(f"  Val dataset: {val_dataset.hidden_states.shape}, {val_dataset.targets.shape}")
     
-    # Subsample training set if requested
+    # Subsample training set if requested (applied after val split)
     if subsample_indices is not None:
         train_dataset = ProbeDataset(
             train_dataset.hidden_states[subsample_indices],
@@ -558,7 +603,8 @@ def train_pooled(
                 "simulated_k": simulated_k,
                 "num_classes": args.num_classes,
                 "train_dir": str(train_dir),
-                "val_dir": str(val_dir),
+                "val_dir": str(val_dir) if val_dir is not None else None,
+                "val_num_examples": args.val_num_examples,
             },
             reinit=True,
         )
@@ -630,7 +676,7 @@ def main():
             raise ValueError("closed_form optimizer requires --no_apply_sigmoid")
 
     train_dir = Path(args.train_dir)
-    val_dir = Path(args.val_dir)
+    val_dir = Path(args.val_dir) if args.val_dir is not None else None
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -651,7 +697,10 @@ def main():
     logger.info(f"  LR: {args.lr}")
     logger.info(f"  Batch size: {args.batch_size}")
     logger.info(f"  Train dir: {train_dir}")
-    logger.info(f"  Val dir: {val_dir}")
+    if val_dir is not None:
+        logger.info(f"  Val dir: {val_dir}")
+    else:
+        logger.info(f"  Val: sampled from training set ({args.val_num_examples} examples, seed={args.seed})")
     logger.info(f"  Output dir: {output_dir}")
     logger.info(f"  Seed: {args.seed}")
     if args.loss == "ce":
@@ -661,18 +710,44 @@ def main():
     
     use_wandb = not args.no_wandb
     
-    # Generate subsample indices once (shared across all layers)
+    # If --val_num_examples is set, carve a validation split out of the training set.
+    # Use a dedicated seeded generator so the split is reproducible via args.seed
+    # independent of any other RNG state.
+    train_split_indices = None
+    val_split_indices = None
+    if args.val_num_examples is not None:
+        total_samples = ProbeDataset.get_num_samples(train_dir)
+        max_val = int(0.5 * total_samples)
+        if args.val_num_examples > max_val:
+            raise ValueError(
+                f"--val_num_examples ({args.val_num_examples}) must be <= "
+                f"0.5 * total training instances ({total_samples}) = {max_val}"
+            )
+        split_generator = torch.Generator().manual_seed(args.seed)
+        perm = torch.randperm(total_samples, generator=split_generator)
+        val_split_indices = perm[: args.val_num_examples]
+        train_split_indices = perm[args.val_num_examples :]
+        available_train = len(train_split_indices)
+        logger.info(
+            f"  Val split: {args.val_num_examples} examples held out from training "
+            f"(train pool: {available_train} / {total_samples})"
+        )
+    else:
+        available_train = ProbeDataset.get_num_samples(train_dir)
+    
+    # Generate subsample indices once (shared across all layers). Indexes into the
+    # training pool AFTER the val split (if any), so always safe to use.
     subsample_indices = None
     if args.num_samples is not None:
-        total_samples = ProbeDataset.get_num_samples(train_dir)
-        if args.num_samples < total_samples:
-            subsample_indices = torch.randperm(total_samples)[:args.num_samples]
-            logger.info(f"  Subsampling {args.num_samples} / {total_samples} training samples")
+        if args.num_samples < available_train:
+            subsample_indices = torch.randperm(available_train)[:args.num_samples]
+            logger.info(f"  Subsampling {args.num_samples} / {available_train} training samples")
     
     # Save experiment config
     experiment_config = {
         "train_dir": str(train_dir),
-        "val_dir": str(val_dir),
+        "val_dir": str(val_dir) if val_dir is not None else None,
+        "val_num_examples": args.val_num_examples,
         "probe_type": args.probe_type,
         "loss": args.loss,
         "optimizer": args.optimizer,
@@ -711,6 +786,8 @@ def main():
             use_wandb=use_wandb,
             subsample_indices=subsample_indices,
             simulated_k=args.k,
+            train_split_indices=train_split_indices,
+            val_split_indices=val_split_indices,
         )
         pooled_results.append(result)
 
@@ -739,6 +816,8 @@ def main():
             use_wandb=use_wandb,
             subsample_indices=subsample_indices,
             simulated_k=args.k,
+            train_split_indices=train_split_indices,
+            val_split_indices=val_split_indices,
         )
         all_results.append(layer_results)
 
