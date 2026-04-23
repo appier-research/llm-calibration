@@ -1,0 +1,12 @@
+# AIME (train): gneubig/aime-1983-2024 excluding year 2024 (N=919)
+# @package _global_.dataset
+
+_target_: src.data.datasets.aime_train.AIMETrainDataset
+
+split: "train"  # gneubig/aime-1983-2024 only has a train split
+max_examples: null  # Set for debugging, e.g., 10
+seed: ${seed}
+
+# Dataset-specific settings
+hf_path: "gneubig/aime-1983-2024"
+exclude_year: 2024
