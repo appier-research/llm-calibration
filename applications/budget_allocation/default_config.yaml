@@ -30,14 +30,15 @@ max_samples_per_question: 100
 
 # Confidence sources to evaluate
 # Available sources:
-#   - 'oracle': Uses ground truth expected_accuracy (perfect confidence)
+#   - 'oracle': Oracle-CC — expected_accuracy per question (deterministic)
+#   - 'oracle_rc': Oracle-RC — one random 0/1 per question from synthetic samples (seed = trial random_seed; not averaged)
 #   - 'verbalized': Loads from estimator_results/verbalized_confidence/.../confidence_predictions.jsonl
 #   - 'consistency': Loads from estimator_results/consistency/.../consistency_k10.jsonl
 #   - 'consistency_k5': Consistency with k=5 (or any k value)
 #   - 'consistency_k20': Consistency with k=20
 #   - 'p_true': Loads from estimator_results/p_true/.../confidence_predictions.jsonl
 #   - 'linear_probe_XXX': Uses linear probe with suffix from linear_probe_configs (e.g., 'linear_probe_math')
-confidence_sources: ['oracle', 'linear_probe_math', 'verbalized']
+confidence_sources: ['oracle', 'oracle_rc', 'linear_probe_math', 'verbalized']
 
 # Linear probe configurations
 # Maps probe names to their probe_suffix
@@ -63,6 +64,9 @@ random_seed: 42
 # Each experiment runs with seeds: [random_seed, random_seed+1, ..., random_seed+num_seeds-1]
 # Results are averaged across seeds to reduce variance
 num_seeds: 10
+
+# If true, budget_sweep PDFs shade mean ±1 std across seeds per method (fill_between); mean line on top
+budget_sweep_plot_error_bars: false
 
 # Y-axis limits for specific (dataset, model) pairs
 # Format: "dataset__model": [ymin, ymax]

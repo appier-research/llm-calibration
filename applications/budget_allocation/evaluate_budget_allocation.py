@@ -155,24 +155,39 @@ def load_dataset(folder_path: Path) -> Tuple[Dict, Dict]:
 
 def get_confidence(ground_truth: Dict, example_ids: List[str], confidence_source: str,
                    folder_path: Path = None, estimator_results_dir: Path = None,
-                   linear_probe_configs: Dict = None) -> np.ndarray:
+                   linear_probe_configs: Dict = None,
+                   samples: Dict = None, rc_random_seed: int = None) -> np.ndarray:
     """
     Extract confidence scores based on source.
 
     Args:
         ground_truth: Ground truth data
         example_ids: Ordered list of example IDs
-        confidence_source: Source of confidence ('oracle', 'verbalized', 'consistency', 'linear_probe_XXX', etc.)
+        confidence_source: Source of confidence ('oracle', 'oracle_rc', 'verbalized', 'consistency', 'linear_probe_XXX', etc.)
         folder_path: Path to the output folder (for parsing dataset/model)
         estimator_results_dir: Path to estimator results directory
         linear_probe_configs: Dict mapping probe names to probe_suffix (for linear_probe sources)
+        samples: Per-example correctness lists (required for oracle_rc)
+        rc_random_seed: Seed for oracle_rc draws (numpy RandomState; independent from eval RNG)
 
     Returns:
         confidences: Array of confidence scores
     """
     if confidence_source == 'oracle':
-        # Use ground truth expected accuracy
+        # Oracle-CC: expected_accuracy per instance
         return np.array([ground_truth[eid]['expected_accuracy'] for eid in example_ids])
+
+    if confidence_source == 'oracle_rc':
+        if samples is None or rc_random_seed is None:
+            raise ValueError("oracle_rc requires samples and rc_random_seed")
+        rng = np.random.RandomState(rc_random_seed)
+        confidences = []
+        for eid in example_ids:
+            lst = samples[eid]
+            if len(lst) == 0:
+                raise ValueError(f"oracle_rc: empty sample list for example_id={eid}")
+            confidences.append(float(lst[rng.randint(0, len(lst))]))
+        return np.array(confidences)
 
     # For external confidence sources, load from file
     if folder_path is None:
@@ -483,7 +498,9 @@ def evaluate_model(folder_path: Path, budget_multiplier: int, confidence_sources
         confidences = get_confidence(ground_truth, example_ids, conf_source,
                                      folder_path=folder_path,
                                      estimator_results_dir=estimator_results_dir,
-                                     linear_probe_configs=linear_probe_configs)
+                                     linear_probe_configs=linear_probe_configs,
+                                     samples=samples,
+                                     rc_random_seed=random_seed)
 
         # Evaluate pure greedy (alpha=0.0)
         greedy_budget = allocate_budget_greedy(confidences, total_budget, min_budget, max_budget)
@@ -527,14 +544,13 @@ def format_method_name(method: str, conf_source: str, alpha: float) -> str:
     # Map confidence source to display name
     conf_display = conf_source
     if conf_source == 'oracle':
-        conf_display = 'Oracle'
+        conf_display = 'Oracle-CC'
+    elif conf_source == 'oracle_rc':
+        conf_display = 'Oracle-RC'
     elif conf_source == 'verbalized':
         conf_display = 'Verbalized'
-    elif conf_source == 'linear_probe_math':
-        conf_display = 'Probe-MATH'
     elif conf_source and conf_source.startswith('linear_probe_'):
-        probe_name = conf_source.replace('linear_probe_', '')
-        conf_display = f'Probe-{probe_name.upper()}'
+        conf_display = 'Probe'
 
     if alpha == 0.0:
         return f'greedy ({conf_display})'
@@ -542,16 +558,19 @@ def format_method_name(method: str, conf_source: str, alpha: float) -> str:
         return f'greedy ({conf_display}, α={alpha:.2f})'
 
 
-def plot_budget_sweep(results_df: pd.DataFrame, dataset: str, model: str, output_path: Path, ylim_config: Dict = None):
+def plot_budget_sweep(results_df: pd.DataFrame, dataset: str, model: str, output_path: Path, ylim_config: Dict = None,
+                      show_error_bars: bool = False):
     """
     Create line plot showing accuracy vs budget multiplier.
 
     Args:
-        results_df: DataFrame with columns [budget_multiplier, method, confidence_source, alpha, accuracy]
+        results_df: DataFrame with columns [budget_multiplier, method, confidence_source, alpha, accuracy];
+            may include accuracy_std (std of accuracy across random seeds) for optional shaded bands.
         dataset: Dataset name
         model: Model name
         output_path: Path to save plot
         ylim_config: Optional dict with (dataset, model) -> (ymin, ymax) mapping
+        show_error_bars: If True and accuracy_std is present, shade mean ±1 std across seeds (fill_between) per method.
     """
     if results_df.empty:
         return
@@ -564,20 +583,24 @@ def plot_budget_sweep(results_df: pd.DataFrame, dataset: str, model: str, output
 
     # Define global style mapping
     styles = {
-        "probe":    {"color": "#56B4E9",   "marker": "o", "ls": "-"},
-        "standard": {"color": "#E69F00",    "marker": "s", "ls": "-"},
-        "baseline": {"color": "#009E73",  "marker": "^", "ls": "-"},
-        "oracle":   {"color": "black",      "marker": "v", "ls": "--"}
+        "probe":     {"color": "#1f77b4",   "marker": "o", "ls": "-"},
+        "standard":  {"color": "#2ca02c",   "marker": "s", "ls": "-"},
+        "baseline":  {"color": "#ff7f0e",  "marker": "^", "ls": "-"},
+        "oracle_cc": {"color": "black",     "marker": "v", "ls": "--"},
+        "oracle_rc": {"color": "#d62728",   "marker": "D", "ls": ":"},
     }
 
     # Create plot
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    # Get unique methods and order them: greedy (Oracle) -> greedy (Probe-MATH) -> greedy (Verbalized) -> Uniform
+    # Get unique methods and order them: Oracle-CC, Oracle-RC, Probe-MATH, Verbalized, Uniform
     methods = results_df['display_name'].unique()
 
     # Define desired order
-    desired_order = ['greedy (Oracle)', 'greedy (Probe-MATH)', 'greedy (Verbalized)', 'Uniform']
+    desired_order = [
+        'greedy (Oracle-CC)', 'greedy (Oracle-RC)', 'greedy (Probe)',
+        'greedy (Verbalized)', 'Uniform',
+    ]
 
     # Keep only methods that exist in the data, in the desired order
     sorted_methods = [m for m in desired_order if m in methods]
@@ -590,8 +613,10 @@ def plot_budget_sweep(results_df: pd.DataFrame, dataset: str, model: str, output
         method_data = results_df[results_df['display_name'] == method_name].sort_values('budget_multiplier')
 
         # Assign style based on method type
-        if 'greedy (Oracle)' in method_name:
-            style = styles["oracle"]
+        if 'Oracle-RC' in method_name:
+            style = styles["oracle_rc"]
+        elif 'Oracle-CC' in method_name:
+            style = styles["oracle_cc"]
         elif 'Probe' in method_name:
             style = styles["probe"]
         elif 'Verbalized' in method_name:
@@ -605,9 +630,30 @@ def plot_budget_sweep(results_df: pd.DataFrame, dataset: str, model: str, output
         # Get marker (handle "None" string)
         marker = style["marker"] if style["marker"] != "None" else None
 
-        ax.plot(method_data['budget_multiplier'], method_data['accuracy'],
+        x = method_data['budget_multiplier'].values
+        y = method_data['accuracy'].values
+        use_err = (
+            show_error_bars
+            and 'accuracy_std' in method_data.columns
+            and method_data['accuracy_std'].notna().any()
+        )
+        if use_err:
+            std = method_data['accuracy_std'].fillna(0).values
+            y_lo = np.clip(y - std, 0.0, 1.0)
+            y_hi = np.clip(y + std, 0.0, 1.0)
+            ax.fill_between(
+                x, y_lo, y_hi,
+                color=style["color"], alpha=0.22, linewidth=0, zorder=1,
+            )
+            ax.plot(
+                x, y,
                 marker=marker, linestyle=style["ls"], linewidth=2,
-                color=style["color"], label=method_name, markersize=12)
+                color=style["color"], label=method_name, markersize=12, zorder=2,
+            )
+        else:
+            ax.plot(x, y,
+                    marker=marker, linestyle=style["ls"], linewidth=2,
+                    color=style["color"], label=method_name, markersize=12)
 
     # Formatting
     ax.set_xlabel('Compute Budget B', fontsize=24)
@@ -618,7 +664,7 @@ def plot_budget_sweep(results_df: pd.DataFrame, dataset: str, model: str, output
     dataset_display = get_display_name(dataset, 'dataset')
     model_display = get_display_name(model, 'model')
     ax.set_title(f'{dataset_display} - {model_display}', fontsize=28, fontweight='bold')
-    ax.legend(fontsize=24, loc='lower right')
+    ax.legend(fontsize=20, loc='lower right')
     ax.grid(True, alpha=0.3)
     ax.set_xscale('log', base=2)
 
@@ -634,11 +680,15 @@ def plot_budget_sweep(results_df: pd.DataFrame, dataset: str, model: str, output
         ax.set_ylim([y_min, y_max])
     else:
         # Adaptive y-axis: compute range across all curves with margin
-        # Collect all accuracy values from all methods
-        all_values = results_df['accuracy'].values
+        acc = results_df['accuracy'].values
+        if show_error_bars and 'accuracy_std' in results_df.columns:
+            std = results_df['accuracy_std'].fillna(0).values
+            all_values = np.concatenate([acc - std, acc + std])
+        else:
+            all_values = acc
 
         if len(all_values) > 0:
-            # Find global min/max across all curves
+            # Find global min/max across all curves (including error extent when enabled)
             global_min = all_values.min()
             global_max = all_values.max()
 
@@ -804,6 +854,7 @@ def main():
     datasets = config.get('datasets', [])
     linear_probe_configs = config.get('linear_probe_configs', {})
     ylim_config = config.get('ylim_config', {})
+    budget_sweep_plot_error_bars = config.get('budget_sweep_plot_error_bars', False)
 
     # Convert ylim_config keys from strings to tuples if needed
     # Config format: {"dataset__model": [ymin, ymax]}
@@ -834,6 +885,7 @@ def main():
     logger.info(f"Number of seeds: {num_seeds}")
     logger.info(f"Seed range: [{random_seed}, {random_seed + num_seeds - 1}]")
     logger.info(f"Datasets: {datasets}")
+    logger.info(f"Budget sweep seed std band (mean ±1 std, shaded): {budget_sweep_plot_error_bars}")
 
     # Group folders by dataset
     grouped_folders = group_folders_by_dataset(outputs_dir, datasets)
@@ -930,7 +982,10 @@ def main():
 
             # Plot 1: Budget sweep (main plot)
             budget_sweep_path = output_dir / f"{dataset}_{model_name}_budget_sweep.pdf"
-            plot_budget_sweep(plot_df, dataset, model_name, budget_sweep_path, ylim_dict)
+            plot_budget_sweep(
+                plot_df, dataset, model_name, budget_sweep_path, ylim_dict,
+                show_error_bars=budget_sweep_plot_error_bars,
+            )
 
             # Plot 2: Alpha sweep (optional, one per confidence source)
             if search_alphas_for:
