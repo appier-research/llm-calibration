@@ -9,35 +9,115 @@ from typing import Dict, List, Tuple
 from collections import defaultdict
 
 
-def load_model_data(folder_path: Path, max_samples: int) -> Tuple[Dict, Dict, List[str]]:
+def linear_probe_confidence_file_path(
+    folder_name: str,
+    probe_key: str,
+    linear_probe_configs: Dict,
+    estimator_results_dir: Path,
+    linear_probe_estimator_results_dir: Path = None,
+    linear_probe_suffix_by_dataset: Dict = None,
+    linear_probe_result_subdir_by_dataset: Dict = None,
+) -> Path:
     """
-    Load ground truth and construct samples data from ground_truth.jsonl.
+    Build path to linear_probe confidence_predictions.jsonl.
+    
+    Returns: {base}/linear_probe/{model}__{suffix}/{result_subdir}/confidence_predictions.jsonl
+    """
+    if not linear_probe_configs or probe_key not in linear_probe_configs:
+        raise ValueError(f"linear_probe_configs must contain key {probe_key!r}")
+    
+    parts = folder_name.split('__')
+    dataset = parts[0]
+    model = parts[1] if len(parts) > 1 else 'unknown'
+    
+    probe_suffix = linear_probe_configs[probe_key]
+    if linear_probe_suffix_by_dataset and dataset in linear_probe_suffix_by_dataset:
+        probe_suffix = linear_probe_suffix_by_dataset[dataset]
+    
+    result_subdir = dataset
+    if linear_probe_result_subdir_by_dataset and dataset in linear_probe_result_subdir_by_dataset:
+        result_subdir = linear_probe_result_subdir_by_dataset[dataset]
+    
+    base = (
+        linear_probe_estimator_results_dir
+        if linear_probe_estimator_results_dir is not None
+        else estimator_results_dir
+    )
+    
+    probe_model_id = f"{model}__{probe_suffix}"
+    return base / 'linear_probe' / probe_model_id / result_subdir / 'confidence_predictions.jsonl'
 
-    Uses num_samples and num_correct fields from ground_truth.jsonl instead of
-    loading the full sampled.jsonl file for efficiency.
+
+def load_model_data(
+    folder_path: Path,
+    max_samples: int,
+    ground_truth_source: str = 'ground_truth_jsonl',
+    ground_truth_linear_probe: str = None,
+    linear_probe_configs: Dict = None,
+    estimator_results_dir: Path = None,
+    linear_probe_estimator_results_dir: Path = None,
+    linear_probe_suffix_by_dataset: Dict = None,
+    linear_probe_result_subdir_by_dataset: Dict = None,
+) -> Tuple[Dict, Dict, List[str]]:
+    """
+    Load ground truth and samples data from specified source.
 
     Args:
-        folder_path: Path to folder containing ground_truth.jsonl
+        folder_path: Path to model output folder
         max_samples: Maximum number of samples to use per instance
+        ground_truth_source: 'ground_truth_jsonl' (outputs folder) or 'linear_probe' (neurips file)
+        ground_truth_linear_probe: Key in linear_probe_configs when using linear_probe source
+        linear_probe_configs: Dict mapping probe names to probe_suffix
+        estimator_results_dir: Path to standard estimator results
+        linear_probe_estimator_results_dir: Optional separate root for linear_probe trees
+        linear_probe_suffix_by_dataset: Optional per-dataset probe suffix overrides
+        linear_probe_result_subdir_by_dataset: Optional per-dataset result subdir mapping
 
     Returns:
         ground_truth: Dict[example_id, expected_accuracy]
-        samples: Dict[example_id, List[correctness]] (synthesized from num_samples/num_correct)
+        samples: Dict[example_id, List[correctness]]
         example_ids: List of valid example IDs
     """
-    ground_truth_path = folder_path / "ground_truth.jsonl"
+    if ground_truth_source == 'ground_truth_jsonl':
+        # Load from outputs folder (original behavior)
+        data_path = folder_path / "ground_truth.jsonl"
+        print(f"Ground truth from: {data_path}")
+        
+        if not data_path.exists():
+            raise FileNotFoundError(f"Missing ground_truth.jsonl in {folder_path}")
+    
+    elif ground_truth_source == 'linear_probe':
+        # Load from neurips confidence_predictions.jsonl
+        if not ground_truth_linear_probe:
+            raise ValueError("ground_truth_linear_probe required when ground_truth_source is 'linear_probe'")
+        if estimator_results_dir is None:
+            estimator_results_dir = Path('estimator_results')
+        
+        data_path = linear_probe_confidence_file_path(
+            folder_path.name,
+            ground_truth_linear_probe,
+            linear_probe_configs,
+            estimator_results_dir,
+            linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+            linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+            linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
+        )
+        print(f"Ground truth from: {data_path}")
+        
+        if not data_path.exists():
+            raise FileNotFoundError(f"Missing confidence_predictions.jsonl: {data_path}")
+    
+    else:
+        raise ValueError(f"Unknown ground_truth_source: {ground_truth_source!r}")
 
-    print(f"grount_truth_path: {ground_truth_path}")
-
-    if not ground_truth_path.exists():
-        raise FileNotFoundError(f"Missing ground_truth.jsonl in {folder_path}")
-
-    # Load ground truth and construct samples from num_samples/num_correct
+    # Load data from JSONL file (both formats have same fields)
     ground_truth = {}
     samples = {}
 
-    with open(ground_truth_path, 'r') as f:
+    with open(data_path, 'r') as f:
         for line in f:
+            if not line.strip():
+                continue
             data = json.loads(line)
             example_id = data['example_id']
 
@@ -55,22 +135,27 @@ def load_model_data(folder_path: Path, max_samples: int) -> Tuple[Dict, Dict, Li
                 num_samples = max_samples
 
             # Create synthetic sample list: [1, 1, ..., 1, 0, 0, ..., 0]
-            # This preserves the pass@k computation which only needs counts
             sample_list = [1] * num_correct + [0] * (num_samples - num_correct)
             samples[example_id] = sample_list
 
-    # All examples from ground_truth are valid
+    # All examples from data file are valid
     example_ids = sorted(ground_truth.keys())
 
     return ground_truth, samples, example_ids
 
 
-def load_confidence(confidence_config: dict,
-                    folder_path: Path,
-                    ground_truth: Dict,
-                    example_ids: List[str],
-                    estimator_results_dir: Path = None,
-                    samples: Dict[str, List[int]] = None) -> Dict[str, float]:
+def load_confidence(
+    confidence_config: dict,
+    folder_path: Path,
+    ground_truth: Dict,
+    example_ids: List[str],
+    estimator_results_dir: Path = None,
+    samples: Dict[str, List[int]] = None,
+    linear_probe_configs: Dict = None,
+    linear_probe_estimator_results_dir: Path = None,
+    linear_probe_suffix_by_dataset: Dict = None,
+    linear_probe_result_subdir_by_dataset: Dict = None,
+) -> Dict[str, float]:
     """
     Flexible confidence loader for different confidence sources.
 
@@ -81,6 +166,10 @@ def load_confidence(confidence_config: dict,
         example_ids: Valid example IDs
         estimator_results_dir: Path to estimator results directory
         samples: Dict[example_id, List[correctness]] for oracle_response
+        linear_probe_configs: Dict mapping probe names to probe_suffix
+        linear_probe_estimator_results_dir: Optional separate root for linear_probe
+        linear_probe_suffix_by_dataset: Optional per-dataset probe suffix overrides
+        linear_probe_result_subdir_by_dataset: Optional per-dataset result subdir mapping
 
     Returns:
         confidence: Dict[example_id, confidence_value]
@@ -161,27 +250,36 @@ def load_confidence(confidence_config: dict,
                     confidence_map[data['example_id']] = data['confidence']
 
         elif method == 'linear_probe' or method.startswith('linear_probe'):
-            # Linear probe uses probe trained on the same model being evaluated
-            # Path: estimator_results/linear_probe/{model}__{probe_suffix}/{dataset}/confidence_predictions.jsonl
-            #
-            # Example:
-            #   Evaluating folder: "math-500__Qwen3-8B-non-thinking"
-            #   Config probe_suffix: "trained-on-gsm8k-and-triviaqa"
-            #   Result path: "estimator_results/linear_probe/Qwen3-8B-non-thinking__trained-on-gsm8k-and-triviaqa/math-500/confidence_predictions.jsonl"
-
+            # Linear probe: use shared path helper
             probe_suffix = confidence_config.get('probe_suffix')
             if not probe_suffix:
                 raise ValueError("linear_probe method requires 'probe_suffix' in config")
-
-            # Extract dataset and model from folder_name (format: dataset__model__hardware)
-            parts = folder_name.split('__')
-            dataset = parts[0]
-            model = parts[1] if len(parts) > 1 else 'unknown'
-
-            # Construct full probe model ID: {model}__{probe_suffix}
-            probe_model_id = f"{model}__{probe_suffix}"
-
-            conf_file = estimator_results_dir / 'linear_probe' / probe_model_id / dataset / 'confidence_predictions.jsonl'
+            
+            # Build temporary linear_probe_configs dict if using legacy config
+            if linear_probe_configs is None:
+                linear_probe_configs = {'legacy': probe_suffix}
+                probe_key = 'legacy'
+            else:
+                # Use probe_suffix as key if it exists in linear_probe_configs
+                probe_key = None
+                for key, value in linear_probe_configs.items():
+                    if value == probe_suffix:
+                        probe_key = key
+                        break
+                if probe_key is None:
+                    # Fallback: create temp entry
+                    linear_probe_configs = {**linear_probe_configs, 'temp': probe_suffix}
+                    probe_key = 'temp'
+            
+            conf_file = linear_probe_confidence_file_path(
+                folder_name,
+                probe_key,
+                linear_probe_configs,
+                estimator_results_dir,
+                linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+                linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+                linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
+            )
 
             if not conf_file.exists():
                 raise FileNotFoundError(f"Confidence file not found: {conf_file}")

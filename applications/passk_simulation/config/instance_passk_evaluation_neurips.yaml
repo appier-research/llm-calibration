@@ -1,0 +1,62 @@
+# Configuration for Instance-level pass@k Evaluation with NeurIPS estimator results
+
+# Datasets to process
+datasets:
+  - aime25-test
+  - math-500
+
+# Paths (relative to passk_simulation/)
+outputs_dir: ../../outputs
+results_dir: ../results/passk_simulation/neurips_instance_passk_results
+
+# Standard estimator results (for verbalized, etc.)
+estimator_results_dir: ../../estimator_results
+
+# NeurIPS linear probe results
+linear_probe_estimator_results_dir: ../../neurips2026_estimator_results
+
+# Ground truth source: load expected_accuracy and samples from neurips confidence_predictions.jsonl
+ground_truth_source: linear_probe
+ground_truth_linear_probe: neurips
+
+# Linear probe configs for neurips
+linear_probe_configs:
+  neurips: "trained-on-aime-train-cc"
+
+# Per-dataset probe suffix and result subdir
+linear_probe_suffix_by_dataset:
+  aime25-test: "trained-on-aime-train-cc"
+  math-500: "trained-on-math-train-cc"
+
+linear_probe_result_subdir_by_dataset:
+  aime25-test: "aime-test"
+  math-500: "math-500"
+
+# pass@k parameters
+k_values: [1, 4, 16, 64]
+max_samples: 100
+
+# Metrics to compute
+metrics: ["mse", "mae", "pearson_r"]
+
+# Confidence sources
+confidence_sources:
+  oracle_cc:
+    type: "ground_truth"
+    label: "Oracle-CC"
+
+  oracle_rc:
+    type: "oracle_response"
+    label: "Oracle-RC"
+
+  linear_probe_neurips:
+    type: "learned"
+    method: "linear_probe"
+    probe_suffix: "trained-on-aime-train-cc"
+    label: "Probe"
+
+# Plotting configuration
+plot_config:
+  figsize: [10, 6]
+  dpi: 300
+  bins: 50

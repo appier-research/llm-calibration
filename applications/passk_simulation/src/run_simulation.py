@@ -53,9 +53,9 @@ DATASET_DISPLAY_NAMES = {
 # Category-based styling (tab10 colors)
 TAB10 = sns.color_palette("tab10")
 CATEGORY_STYLES = {
-    'probe': {'color': "#56B4E9", 'linestyle': '--'},      # blue, solid
-    'standard': {'color': "#E69F00", 'linestyle': '-'},   # red, solid
-    'baseline': {'color': "#009E73", 'linestyle': '-.'}    # green, solid
+    'probe': {'color': "#ff7f0e", 'linestyle': '--'},      # blue, solid
+    'standard': {'color': "#2ca02c", 'linestyle': '-'},   # red, solid
+    'baseline': {'color': "#1f77b4", 'linestyle': '-.'}    # green, solid
 }
 
 
@@ -341,13 +341,21 @@ def save_results_to_csv(simulated_results: Dict[str, dict],
     return rows
 
 
-def process_model(folder_path: Path,
-                  folder_name: str,
-                  model: str,
-                  dataset: str,
-                  config: dict,
-                  results_dir: Path,
-                  estimator_results_dir: Path = None) -> List[Dict]:
+def process_model(
+    folder_path: Path,
+    folder_name: str,
+    model: str,
+    dataset: str,
+    config: dict,
+    results_dir: Path,
+    estimator_results_dir: Path = None,
+    linear_probe_configs: Dict = None,
+    linear_probe_estimator_results_dir: Path = None,
+    linear_probe_suffix_by_dataset: Dict = None,
+    linear_probe_result_subdir_by_dataset: Dict = None,
+    ground_truth_source: str = 'ground_truth_jsonl',
+    ground_truth_linear_probe: str = None,
+) -> List[Dict]:
     """
     Process a single model: simulate and plot pass@k curves.
 
@@ -358,7 +366,13 @@ def process_model(folder_path: Path,
         dataset: Dataset name
         config: Configuration dict
         results_dir: Directory to save results
-        estimator_results_dir: Path to estimator results directory (for learned confidence)
+        estimator_results_dir: Path to estimator results directory
+        linear_probe_configs: Dict mapping probe names to probe_suffix
+        linear_probe_estimator_results_dir: Optional separate root for linear_probe
+        linear_probe_suffix_by_dataset: Optional per-dataset probe suffix overrides
+        linear_probe_result_subdir_by_dataset: Optional per-dataset result subdir mapping
+        ground_truth_source: 'ground_truth_jsonl' or 'linear_probe'
+        ground_truth_linear_probe: Key in linear_probe_configs when using linear_probe source
 
     Returns:
         List of result dictionaries for aggregation (or None if failed)
@@ -369,7 +383,14 @@ def process_model(folder_path: Path,
     try:
         ground_truth, samples, example_ids = load_model_data(
             folder_path,
-            config['max_samples']
+            config['max_samples'],
+            ground_truth_source=ground_truth_source,
+            ground_truth_linear_probe=ground_truth_linear_probe,
+            linear_probe_configs=linear_probe_configs,
+            estimator_results_dir=estimator_results_dir,
+            linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+            linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+            linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
         )
         logging.info(f"  Loaded {len(example_ids)} examples")
     except Exception as e:
@@ -407,7 +428,11 @@ def process_model(folder_path: Path,
                         ground_truth,
                         example_ids,
                         estimator_results_dir,
-                        samples
+                        samples,
+                        linear_probe_configs=linear_probe_configs,
+                        linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+                        linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+                        linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
                     )
                     seed_result = simulate_passk(confidence, k_values, example_ids)
                     all_seed_results.append(seed_result)
@@ -430,7 +455,11 @@ def process_model(folder_path: Path,
                     ground_truth,
                     example_ids,
                     estimator_results_dir,
-                    samples
+                    samples,
+                    linear_probe_configs=linear_probe_configs,
+                    linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+                    linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+                    linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
                 )
 
                 # Apply clipping
@@ -510,6 +539,16 @@ def main():
 
     # Get estimator results directory (default to 'estimator_results' if not specified)
     estimator_results_dir = Path(config.get('estimator_results_dir', 'estimator_results')).resolve()
+    
+    # Get neurips-specific parameters
+    linear_probe_configs = config.get('linear_probe_configs')
+    linear_probe_estimator_results_dir = config.get('linear_probe_estimator_results_dir')
+    if linear_probe_estimator_results_dir is not None:
+        linear_probe_estimator_results_dir = Path(linear_probe_estimator_results_dir).resolve()
+    linear_probe_suffix_by_dataset = config.get('linear_probe_suffix_by_dataset')
+    linear_probe_result_subdir_by_dataset = config.get('linear_probe_result_subdir_by_dataset')
+    ground_truth_source = config.get('ground_truth_source', 'ground_truth_jsonl')
+    ground_truth_linear_probe = config.get('ground_truth_linear_probe')
 
     # Setup logging
     log_path = setup_logging(results_dir)
@@ -523,6 +562,11 @@ def main():
     logging.info(f"Max samples: {config['max_samples']}")
     logging.info(f"Outputs dir: {outputs_dir}")
     logging.info(f"Results dir: {results_dir}")
+    logging.info(f"Estimator results dir: {estimator_results_dir}")
+    if linear_probe_estimator_results_dir:
+        logging.info(f"Linear probe estimator results dir: {linear_probe_estimator_results_dir}")
+    logging.info(f"Ground truth source: {ground_truth_source}" +
+                (f" (linear_probe key={ground_truth_linear_probe!r})" if ground_truth_source == 'linear_probe' else ""))
     logging.info(f"Log file: {log_path}")
 
     # Group folders by dataset
@@ -554,7 +598,13 @@ def main():
                 dataset,
                 config,
                 results_dir,
-                estimator_results_dir
+                estimator_results_dir,
+                linear_probe_configs=linear_probe_configs,
+                linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+                linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+                linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
+                ground_truth_source=ground_truth_source,
+                ground_truth_linear_probe=ground_truth_linear_probe,
             )
 
             # Collect results for aggregation

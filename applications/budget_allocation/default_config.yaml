@@ -14,10 +14,19 @@ datasets:
   # #- triviaqa-train
   # - triviaqa-validation
 
+# Optional: only run these model names (folder segment after dataset__); omit for all models
+# models:
+#   - gpt-oss-20b
+
 # Paths
 outputs_dir: ../../outputs
 results_dir: ../results/budget_allocation
 estimator_results_dir: ../../estimator_results
+
+# Pass@k labels: default reads outputs/.../ground_truth.jsonl. Use linear_probe + ground_truth_linear_probe
+# to take expected_accuracy and num_samples/num_correct from estimator confidence_predictions.jsonl instead.
+# ground_truth_source: ground_truth_jsonl
+# ground_truth_linear_probe: neurips
 
 # Budget multipliers to test (B values where total_budget = B * N)
 budget_multipliers: [1, 2, 4, 8, 16, 32]
@@ -47,6 +56,9 @@ confidence_sources: ['oracle', 'oracle_rc', 'linear_probe_math', 'verbalized']
 linear_probe_configs:
   math: "trained-on-math-train-and-validated-on-math-valid"
   # Add more probe configurations as needed
+
+# Optional (NeurIPS / alternate layouts): linear_probe_estimator_results_dir,
+# linear_probe_suffix_by_dataset, linear_probe_result_subdir_by_dataset — see neurips_config.yaml
 
 # Which confidence sources to perform alpha search on
 # Empty list = no alpha search, only evaluate pure greedy

@@ -29,7 +29,7 @@ DATASET_DISPLAY_NAMES = {
     'triviaqa-validation': 'TriviaQA',
     'mmlu-pro': 'MMLU-Pro',
     'math-500': 'MATH-500',
-    'aime25-test': 'AIME25',
+    'aime25-test': 'AIME',
 }
 
 MODEL_DISPLAY_NAMES = {
@@ -87,8 +87,19 @@ def parse_folder_name(folder_name: str) -> Tuple[str, str]:
     return folder_name, 'unknown'
 
 
-def group_folders_by_dataset(outputs_dir: Path, datasets: List[str]) -> Dict[str, List[Tuple[str, str]]]:
-    """Group output folders by dataset."""
+def group_folders_by_dataset(
+    outputs_dir: Path,
+    datasets: List[str],
+    models: List[str] = None,
+) -> Dict[str, List[Tuple[str, str]]]:
+    """
+    Group output folders by dataset.
+
+    Args:
+        outputs_dir: Root containing dataset__model__... folders
+        datasets: Dataset names to include
+        models: If set and non-empty, only include folders whose model segment is in this list
+    """
     grouped = defaultdict(list)
 
     for folder in outputs_dir.iterdir():
@@ -105,48 +116,117 @@ def group_folders_by_dataset(outputs_dir: Path, datasets: List[str]) -> Dict[str
         dataset, model = parse_folder_name(folder.name)
 
         if dataset in datasets:
+            if models is not None and len(models) > 0 and model not in models:
+                continue
             grouped[dataset].append((folder.name, model))
 
     return dict(grouped)
 
 
-def load_dataset(folder_path: Path) -> Tuple[Dict, Dict]:
+def linear_probe_confidence_file_path(
+    folder_name: str,
+    probe_name: str,
+    linear_probe_configs: Dict,
+    estimator_results_dir: Path,
+    linear_probe_estimator_results_dir: Path = None,
+    linear_probe_suffix_by_dataset: Dict = None,
+    linear_probe_result_subdir_by_dataset: Dict = None,
+) -> Path:
     """
-    Load ground truth and construct samples data from ground_truth.jsonl.
-
-    Uses num_samples and num_correct fields from ground_truth.jsonl instead of
-    loading the full sampled.jsonl file for efficiency.
-
-    Returns:
-        ground_truth: Dict mapping example_id -> {'expected_accuracy', 'answer'}
-        samples: Dict mapping example_id -> List[correctness values]
+    Path to .../linear_probe/{model}__{probe_suffix}/{result_subdir}/confidence_predictions.jsonl
+    (same layout as get_confidence for linear_probe sources).
     """
-    ground_truth_path = folder_path / "ground_truth.jsonl"
+    if not linear_probe_configs or probe_name not in linear_probe_configs:
+        raise ValueError(
+            f"linear_probe_configs must contain probe name {probe_name!r}; got keys {list(linear_probe_configs or {}).keys()}"
+        )
 
-    if not ground_truth_path.exists():
-        raise FileNotFoundError(f"Missing ground_truth.jsonl in {folder_path}")
+    parts = folder_name.split('__')
+    dataset = parts[0]
+    model = parts[1] if len(parts) > 1 else 'unknown'
 
-    # Load ground truth and construct samples from num_samples/num_correct
-    ground_truth = {}
-    samples = {}
+    probe_suffix = linear_probe_configs[probe_name]
+    if linear_probe_suffix_by_dataset and dataset in linear_probe_suffix_by_dataset:
+        probe_suffix = linear_probe_suffix_by_dataset[dataset]
 
-    with open(ground_truth_path, 'r') as f:
+    result_subdir = dataset
+    if linear_probe_result_subdir_by_dataset and dataset in linear_probe_result_subdir_by_dataset:
+        result_subdir = linear_probe_result_subdir_by_dataset[dataset]
+
+    linear_base = (
+        linear_probe_estimator_results_dir
+        if linear_probe_estimator_results_dir is not None
+        else estimator_results_dir
+    )
+
+    probe_model_id = f"{model}__{probe_suffix}"
+    return linear_base / 'linear_probe' / probe_model_id / result_subdir / 'confidence_predictions.jsonl'
+
+
+def load_dataset(
+    folder_path: Path,
+    ground_truth_source: str = 'ground_truth_jsonl',
+    ground_truth_linear_probe: str = None,
+    linear_probe_configs: Dict = None,
+    estimator_results_dir: Path = None,
+    linear_probe_estimator_results_dir: Path = None,
+    linear_probe_suffix_by_dataset: Dict = None,
+    linear_probe_result_subdir_by_dataset: Dict = None,
+) -> Tuple[Dict, Dict]:
+    """
+    Load per-example expected_accuracy and synthetic correctness lists for pass@k evaluation.
+
+    ground_truth_source:
+      - 'ground_truth_jsonl': read outputs/.../ground_truth.jsonl (default).
+      - 'linear_probe': read the same confidence_predictions.jsonl used for linear_probe_{probe}
+        (expected_accuracy, num_samples, num_correct from each line; no outputs ground_truth file).
+    """
+    if ground_truth_source == 'ground_truth_jsonl':
+        ground_truth_path = folder_path / "ground_truth.jsonl"
+        if not ground_truth_path.exists():
+            raise FileNotFoundError(f"Missing ground_truth.jsonl in {folder_path}")
+        return _load_ground_truth_from_jsonl(ground_truth_path)
+
+    if ground_truth_source == 'linear_probe':
+        if not ground_truth_linear_probe:
+            raise ValueError("ground_truth_linear_probe is required when ground_truth_source is 'linear_probe'")
+        if estimator_results_dir is None:
+            estimator_results_dir = Path('estimator_results')
+        conf_path = linear_probe_confidence_file_path(
+            folder_path.name,
+            ground_truth_linear_probe,
+            linear_probe_configs,
+            estimator_results_dir,
+            linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+            linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+            linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
+        )
+        if not conf_path.exists():
+            raise FileNotFoundError(f"Missing confidence_predictions.jsonl for ground truth: {conf_path}")
+        return _load_ground_truth_from_jsonl(conf_path)
+
+    raise ValueError(f"Unknown ground_truth_source: {ground_truth_source!r} (use 'ground_truth_jsonl' or 'linear_probe')")
+
+
+def _load_ground_truth_from_jsonl(path: Path) -> Tuple[Dict, Dict]:
+    """Build ground_truth and samples dicts from a JSONL with expected_accuracy and num_samples/num_correct."""
+    ground_truth: Dict = {}
+    samples: Dict = {}
+
+    with open(path, 'r') as f:
         for line in f:
+            if not line.strip():
+                continue
             data = json.loads(line)
             example_id = data['example_id']
 
-            # Store ground truth info
             ground_truth[example_id] = {
                 'expected_accuracy': data['expected_accuracy'],
-                'answer': data.get('ground_truth_answer', None)
+                'answer': data.get('ground_truth_answer', None),
             }
 
-            # Construct sample list from num_samples and num_correct
             num_samples = data['num_samples']
             num_correct = data['num_correct']
-
-            # Create synthetic sample list: [1, 1, ..., 1, 0, 0, ..., 0]
-            # This preserves pass@k computation which only needs counts
             sample_list = [1] * num_correct + [0] * (num_samples - num_correct)
             samples[example_id] = sample_list
 
@@ -156,7 +236,10 @@ def load_dataset(folder_path: Path) -> Tuple[Dict, Dict]:
 def get_confidence(ground_truth: Dict, example_ids: List[str], confidence_source: str,
                    folder_path: Path = None, estimator_results_dir: Path = None,
                    linear_probe_configs: Dict = None,
-                   samples: Dict = None, rc_random_seed: int = None) -> np.ndarray:
+                   samples: Dict = None, rc_random_seed: int = None,
+                   linear_probe_estimator_results_dir: Path = None,
+                   linear_probe_suffix_by_dataset: Dict = None,
+                   linear_probe_result_subdir_by_dataset: Dict = None) -> np.ndarray:
     """
     Extract confidence scores based on source.
 
@@ -169,6 +252,9 @@ def get_confidence(ground_truth: Dict, example_ids: List[str], confidence_source
         linear_probe_configs: Dict mapping probe names to probe_suffix (for linear_probe sources)
         samples: Per-example correctness lists (required for oracle_rc)
         rc_random_seed: Seed for oracle_rc draws (numpy RandomState; independent from eval RNG)
+        linear_probe_estimator_results_dir: If set, used as root for linear_probe/... only (verbalized etc. still use estimator_results_dir)
+        linear_probe_suffix_by_dataset: Optional dict dataset_name -> probe_suffix, overrides linear_probe_configs for that dataset
+        linear_probe_result_subdir_by_dataset: Optional dict dataset_name -> subfolder name under .../model__suffix/ (e.g. aime25-test -> aime-test)
 
     Returns:
         confidences: Array of confidence scores
@@ -243,9 +329,6 @@ def get_confidence(ground_truth: Dict, example_ids: List[str], confidence_source
                 confidence_map[data['example_id']] = data['confidence']
 
     elif confidence_source.startswith('linear_probe'):
-        # Linear probe: estimator_results/linear_probe/{model}__{probe_suffix}/{dataset}/confidence_predictions.jsonl
-        # Extract probe name from confidence_source (e.g., 'linear_probe_math' -> 'math')
-
         if linear_probe_configs is None:
             raise ValueError("linear_probe_configs required for linear_probe confidence sources")
 
@@ -254,17 +337,18 @@ def get_confidence(ground_truth: Dict, example_ids: List[str], confidence_source
         if probe_name not in linear_probe_configs:
             raise ValueError(f"Unknown linear probe config: {probe_name}. Available: {list(linear_probe_configs.keys())}")
 
-        probe_suffix = linear_probe_configs[probe_name]
+        if estimator_results_dir is None:
+            estimator_results_dir = Path('estimator_results')
 
-        # Extract dataset and model from folder_name (format: dataset__model__hardware)
-        parts = folder_name.split('__')
-        dataset = parts[0]
-        model = parts[1] if len(parts) > 1 else 'unknown'
-
-        # Construct full probe model ID: {model}__{probe_suffix}
-        probe_model_id = f"{model}__{probe_suffix}"
-
-        conf_file = estimator_results_dir / 'linear_probe' / probe_model_id / dataset / 'confidence_predictions.jsonl'
+        conf_file = linear_probe_confidence_file_path(
+            folder_name,
+            probe_name,
+            linear_probe_configs,
+            estimator_results_dir,
+            linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+            linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+            linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
+        )
 
         if not conf_file.exists():
             raise FileNotFoundError(f"Confidence file not found: {conf_file}")
@@ -440,7 +524,12 @@ def evaluate_method(ground_truth: Dict, samples: Dict, budget_allocation: np.nda
 def evaluate_model(folder_path: Path, budget_multiplier: int, confidence_sources: List[str],
                    search_alphas_for: List[str], test_alphas: List[float], random_seed: int,
                    min_budget: int = 0, max_budget: int = 100,
-                   estimator_results_dir: Path = None, linear_probe_configs: Dict = None) -> Dict:
+                   estimator_results_dir: Path = None, linear_probe_configs: Dict = None,
+                   linear_probe_estimator_results_dir: Path = None,
+                   linear_probe_suffix_by_dataset: Dict = None,
+                   linear_probe_result_subdir_by_dataset: Dict = None,
+                   ground_truth_source: str = 'ground_truth_jsonl',
+                   ground_truth_linear_probe: str = None) -> Dict:
     """
     Evaluate budget allocation methods for a single model at a specific budget level.
 
@@ -455,15 +544,41 @@ def evaluate_model(folder_path: Path, budget_multiplier: int, confidence_sources
         max_budget: Maximum samples per question
         estimator_results_dir: Path to estimator results directory
         linear_probe_configs: Dict mapping probe names to probe_suffix (for linear_probe sources)
+        linear_probe_estimator_results_dir: Optional separate root for linear_probe trees only
+        linear_probe_suffix_by_dataset: Optional per-dataset probe suffix overrides
+        linear_probe_result_subdir_by_dataset: Optional per-dataset subfolder under model__suffix
+        ground_truth_source: 'ground_truth_jsonl' (outputs folder) or 'linear_probe' (confidence_predictions.jsonl)
+        ground_truth_linear_probe: Key in linear_probe_configs when ground_truth_source is 'linear_probe'
 
     Returns:
         results: Dict mapping (method, confidence_source, alpha) -> metrics dict
     """
     # Load data
-    ground_truth_path = folder_path / "ground_truth.jsonl"
-    logging.info(f"    Loading from: {ground_truth_path}")
+    if ground_truth_source == 'ground_truth_jsonl':
+        logging.info(f"    Ground truth from: {folder_path / 'ground_truth.jsonl'}")
+    elif ground_truth_source == 'linear_probe':
+        _est = estimator_results_dir if estimator_results_dir is not None else Path('estimator_results')
+        _gt_path = linear_probe_confidence_file_path(
+            folder_path.name,
+            ground_truth_linear_probe,
+            linear_probe_configs,
+            _est,
+            linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+            linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+            linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
+        )
+        logging.info(f"    Ground truth from: {_gt_path}")
 
-    ground_truth, samples = load_dataset(folder_path)
+    ground_truth, samples = load_dataset(
+        folder_path,
+        ground_truth_source=ground_truth_source,
+        ground_truth_linear_probe=ground_truth_linear_probe,
+        linear_probe_configs=linear_probe_configs,
+        estimator_results_dir=estimator_results_dir,
+        linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+        linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+        linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
+    )
 
     # Get ordered list of example IDs
     example_ids = sorted(ground_truth.keys())
@@ -500,7 +615,10 @@ def evaluate_model(folder_path: Path, budget_multiplier: int, confidence_sources
                                      estimator_results_dir=estimator_results_dir,
                                      linear_probe_configs=linear_probe_configs,
                                      samples=samples,
-                                     rc_random_seed=random_seed)
+                                     rc_random_seed=random_seed,
+                                     linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+                                     linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+                                     linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset)
 
         # Evaluate pure greedy (alpha=0.0)
         greedy_budget = allocate_budget_greedy(confidences, total_budget, min_budget, max_budget)
@@ -852,9 +970,19 @@ def main():
     search_alphas_for = config.get('search_alphas_for', [])
     test_alphas = config.get('test_alphas', [0.25, 0.5, 0.75])
     datasets = config.get('datasets', [])
+    models = config.get('models')
+    if models is not None and not isinstance(models, list):
+        models = [models]  # allow a single string in yaml
     linear_probe_configs = config.get('linear_probe_configs', {})
+    linear_probe_estimator_results_dir = config.get('linear_probe_estimator_results_dir')
+    if linear_probe_estimator_results_dir is not None:
+        linear_probe_estimator_results_dir = Path(linear_probe_estimator_results_dir)
+    linear_probe_suffix_by_dataset = config.get('linear_probe_suffix_by_dataset') or None
+    linear_probe_result_subdir_by_dataset = config.get('linear_probe_result_subdir_by_dataset') or None
     ylim_config = config.get('ylim_config', {})
     budget_sweep_plot_error_bars = config.get('budget_sweep_plot_error_bars', False)
+    ground_truth_source = config.get('ground_truth_source', 'ground_truth_jsonl')
+    ground_truth_linear_probe = config.get('ground_truth_linear_probe')
 
     # Convert ylim_config keys from strings to tuples if needed
     # Config format: {"dataset__model": [ymin, ymax]}
@@ -875,6 +1003,14 @@ def main():
     logger.info("=" * 80)
     logger.info(f"Outputs directory: {outputs_dir}")
     logger.info(f"Estimator results directory: {estimator_results_dir}")
+    if linear_probe_estimator_results_dir is not None:
+        logger.info(f"Linear probe estimator results directory: {linear_probe_estimator_results_dir}")
+    if linear_probe_suffix_by_dataset:
+        logger.info(f"Linear probe per-dataset suffix map: {linear_probe_suffix_by_dataset}")
+    if linear_probe_result_subdir_by_dataset:
+        logger.info(f"Linear probe per-dataset result subdir map: {linear_probe_result_subdir_by_dataset}")
+    logger.info(f"Ground truth source: {ground_truth_source}" +
+                (f" (linear_probe key={ground_truth_linear_probe!r})" if ground_truth_source == 'linear_probe' else ""))
     logger.info(f"Budget multipliers: {budget_multipliers}")
     logger.info(f"Min budget per question: {min_budget}")
     logger.info(f"Max budget per question: {max_budget}")
@@ -885,10 +1021,14 @@ def main():
     logger.info(f"Number of seeds: {num_seeds}")
     logger.info(f"Seed range: [{random_seed}, {random_seed + num_seeds - 1}]")
     logger.info(f"Datasets: {datasets}")
+    if models is not None and len(models) > 0:
+        logger.info(f"Models filter (only these): {models}")
+    else:
+        logger.info("Models: all (no filter)")
     logger.info(f"Budget sweep seed std band (mean ±1 std, shaded): {budget_sweep_plot_error_bars}")
 
     # Group folders by dataset
-    grouped_folders = group_folders_by_dataset(outputs_dir, datasets)
+    grouped_folders = group_folders_by_dataset(outputs_dir, datasets, models=models)
     logger.info(f"Found {len(grouped_folders)} datasets")
 
     # Collect all results
@@ -923,7 +1063,12 @@ def main():
                         results = evaluate_model(folder_path, budget_mult, confidence_sources,
                                                search_alphas_for, test_alphas, current_seed,
                                                min_budget, max_budget, estimator_results_dir,
-                                               linear_probe_configs)
+                                               linear_probe_configs,
+                                               linear_probe_estimator_results_dir,
+                                               linear_probe_suffix_by_dataset,
+                                               linear_probe_result_subdir_by_dataset,
+                                               ground_truth_source=ground_truth_source,
+                                               ground_truth_linear_probe=ground_truth_linear_probe)
 
                         # Collect results by key
                         for key, metrics in results.items():

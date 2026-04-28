@@ -5,6 +5,14 @@ outputs_dir: ../../outputs
 results_dir: ../results/passk_simulation/instance_passk_results
 estimator_results_dir: ../../estimator_results
 
+# Optional neurips-style ground truth loading (see instance_passk_evaluation_neurips.yaml):
+# ground_truth_source: linear_probe
+# ground_truth_linear_probe: neurips
+# linear_probe_estimator_results_dir: ../../neurips2026_estimator_results
+# linear_probe_configs: {...}
+# linear_probe_suffix_by_dataset: {...}
+# linear_probe_result_subdir_by_dataset: {...}
+
 # Datasets to evaluate
 datasets: ["aime25-test","math-500"]
 

@@ -1,0 +1,69 @@
+# Budget allocation evaluation with NeurIPS linear-probe confidences.
+# Run from applications/budget_allocation:
+#   python evaluate_budget_allocation.py --config neurips_config.yaml
+
+# List of datasets to evaluate
+datasets:
+  - aime25-test
+  - math-500
+
+# Optional: only evaluate these model folder segments (second part of dataset__model__…).
+# Omit this key, use null, or use an empty list to run every model under outputs.
+models:
+  - Qwen3-8B-non-thinking
+  - Olmo-3-7B-Instruct
+  - gpt-oss-20b
+
+# Paths (relative to applications/budget_allocation)
+outputs_dir: ../../outputs
+results_dir: ../results/budget_allocation_neurips
+
+# Verbalized / consistency / p_true still use this root
+estimator_results_dir: ../../estimator_results
+
+# NeurIPS linear probes live under a separate tree:
+#   {linear_probe_estimator_results_dir}/linear_probe/{model}__{probe_suffix}/{result_subdir}/confidence_predictions.jsonl
+linear_probe_estimator_results_dir: ../../neurips2026_estimator_results
+
+# Pass@k labels: read expected_accuracy, num_samples, num_correct from this file (not outputs/ground_truth.jsonl)
+ground_truth_source: linear_probe
+ground_truth_linear_probe: neurips
+
+# Budget multipliers to test (B values where total_budget = B * N)
+budget_multipliers: [1, 2, 4, 8, 16, 32]
+
+min_budget: 0
+max_samples_per_question: 100
+
+# linear_probe_neurips uses per-dataset probe training below; verbalized unchanged
+confidence_sources: ['oracle', 'oracle_rc', 'linear_probe_neurips'] #'verbalized'
+
+# Required entry for source name linear_probe_neurips (fallback if a dataset is missing from linear_probe_suffix_by_dataset)
+linear_probe_configs:
+  neurips: "trained-on-aime-train-cc"
+
+# Per-eval-dataset probe directory suffix (folder ...__{suffix}/...)
+# aime25-test: trained on AIME; math-500: trained on MATH (adjust strings to match your on-disk folder names)
+linear_probe_suffix_by_dataset:
+  aime25-test: "trained-on-aime-train-cc"
+  math-500: "trained-on-math-train-cc"
+
+# Subfolder under .../{model}__{suffix}/ that holds confidence_predictions.jsonl (defaults to eval dataset name if omitted)
+linear_probe_result_subdir_by_dataset:
+  aime25-test: "aime-test"
+  math-500: "math-500"
+
+search_alphas_for: []
+test_alphas: [0.0, 0.25, 0.5, 0.75, 1.0]
+
+random_seed: 42
+num_seeds: 10
+budget_sweep_plot_error_bars: false
+
+ylim_config:
+  "aime25-test__Qwen3-8B-non-thinking": [0.2, 0.7]
+  "aime25-test__Olmo-3-7B-Instruct": [0.36, 0.9]
+  "aime25-test__gpt-oss-20b": [0.68, 1.0]
+  "math-500__Qwen3-8B-non-thinking": [0.84, 1.0]
+  "math-500__Olmo-3-7B-Instruct": [0.9, 1.0]
+  "math-500__gpt-oss-20b": [0.94, 1.0]
