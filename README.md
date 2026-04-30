@@ -1,5 +1,4 @@
 # On Calibration of Large Language Models: From Response To Capability
-This is the official codebase for the paper ["On Calibration of Large Language Models: From Response To Capability"](https://arxiv.org/abs/2602.13540).
 
 ## Setup
 Install the dependencies:

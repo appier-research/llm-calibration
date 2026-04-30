@@ -24,7 +24,7 @@ for prefix in "${prefixes[@]}"; do
         --output_dir "outputs/${prefix}__${model_name}/probing_dataset" \
         --mode "expected_accuracy" \
         --batch_size 32 \
-        --cache_dir "/home/brianckwu/.cache/huggingface/hub"
+        --cache_dir "~/.cache/huggingface/hub"
 done
 
 # Train linear probes

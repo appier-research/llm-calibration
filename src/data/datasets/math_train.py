@@ -23,7 +23,7 @@ class MathTrainDataset(BaseMathDataset):
         split: str = "train",
         max_examples: Optional[int] = None,
         seed: Optional[int] = None,
-        hf_path: str = "appier-ai-research/MATH-train-11498",
+        hf_path: str = "ANONYMOUS/MATH-train-11498",
         verification_mode: str = "math_verify",
         llm_judge_model: Optional[str] = "openai/gpt-oss-20b",
         llm_judge_base_url: Optional[str] = None,

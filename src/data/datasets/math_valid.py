@@ -24,7 +24,7 @@ class MathValidDataset(BaseMathDataset):
         split: str = "validation",
         max_examples: Optional[int] = None,
         seed: Optional[int] = None,
-        hf_path: str = "appier-ai-research/MATH-valid-500",
+        hf_path: str = "ANONYMOUS/MATH-valid-500",
         verification_mode: str = "math_verify",
         llm_judge_model: Optional[str] = "openai/gpt-oss-20b",
         llm_judge_base_url: Optional[str] = None,

@@ -8,7 +8,7 @@ max_examples: null
 seed: ${seed}
 
 # Dataset-specific settings
-hf_path: "appier-ai-research/MATH-valid-500"
+hf_path: "ANONYMOUS/MATH-valid-500"
 verification_mode: "math_verify"  # or "llm_judge"
 llm_judge_model: "openai/gpt-oss-20b"
 llm_judge_base_url: null
