@@ -39,6 +39,7 @@ MODEL_DISPLAY_NAMES = {
 DATASET_DISPLAY_NAMES = {
     'math-500': 'MATH-500',
     'aime25-test': 'AIME25',
+    'aime-test': 'AIME',
     'gsm8k-test': 'GSM8K',
     'gsm8k-train': 'GSM8K',
     'triviaqa-train': 'TriviaQA',

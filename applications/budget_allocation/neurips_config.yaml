@@ -1,69 +1,94 @@
-# Budget allocation evaluation with NeurIPS linear-probe confidences.
-# Run from applications/budget_allocation:
-#   python evaluate_budget_allocation.py --config neurips_config.yaml
+# Configuration for budget allocation evaluation
 
 # List of datasets to evaluate
+# Script automatically finds all model folders for each dataset
 datasets:
-  - aime25-test
+  #- aime-test
   - math-500
+  # - gpqa-diamond
+  # - gpqa-main
+  # - gsm8k-test
+  # #- gsm8k-train
+  # - mmlu-test
+  # - mmlu-validation
+  # #- triviaqa-train
+  # - triviaqa-validation
 
-# Optional: only evaluate these model folder segments (second part of dataset__model__…).
-# Omit this key, use null, or use an empty list to run every model under outputs.
+# Optional: only run these model names (folder segment after dataset__); omit for all models
 models:
-  - Qwen3-8B-non-thinking
-  - Olmo-3-7B-Instruct
   - gpt-oss-20b
+  #- Qwen3-8B-non-thinking
+  #- Olmo-3-7B-Instruct
 
-# Paths (relative to applications/budget_allocation)
-outputs_dir: ../../outputs
-results_dir: ../results/budget_allocation_neurips
+# Paths
+outputs_dir: ../../neurips2026/outputs
+results_dir: ../results/budget_allocation_neurips_v5
+estimator_results_dir: ../../neurips2026/estimator_results
 
-# Verbalized / consistency / p_true still use this root
-estimator_results_dir: ../../estimator_results
-
-# NeurIPS linear probes live under a separate tree:
-#   {linear_probe_estimator_results_dir}/linear_probe/{model}__{probe_suffix}/{result_subdir}/confidence_predictions.jsonl
-linear_probe_estimator_results_dir: ../../neurips2026_estimator_results
-
-# Pass@k labels: read expected_accuracy, num_samples, num_correct from this file (not outputs/ground_truth.jsonl)
-ground_truth_source: linear_probe
-ground_truth_linear_probe: neurips
+# Pass@k labels: default reads outputs/.../ground_truth.jsonl. Use linear_probe + ground_truth_linear_probe
+# to take expected_accuracy and num_samples/num_correct from estimator confidence_predictions.jsonl instead.
+# ground_truth_source: ground_truth_jsonl
+# ground_truth_linear_probe: neurips
 
 # Budget multipliers to test (B values where total_budget = B * N)
 budget_multipliers: [1, 2, 4, 8, 16, 32]
 
+# Minimum samples per question (0 allows skipping questions)
 min_budget: 0
+
+# Maximum samples per question (prevents over-sampling)
 max_samples_per_question: 100
 
-# linear_probe_neurips uses per-dataset probe training below; verbalized unchanged
-confidence_sources: ['oracle', 'oracle_rc', 'linear_probe_neurips'] #'verbalized'
+# Confidence sources to evaluate
+# Available sources:
+#   - 'oracle': Oracle-CC — expected_accuracy per question (deterministic)
+#   - 'oracle_rc': Oracle-RC — one random 0/1 per question from synthetic samples (seed = trial random_seed; not averaged)
+#   - 'verbalized': Loads from estimator_results/verbalized_confidence/.../confidence_predictions.jsonl
+#   - 'consistency': Loads from estimator_results/consistency/.../consistency_k10.jsonl
+#   - 'consistency_k5': Consistency with k=5 (or any k value)
+#   - 'consistency_k20': Consistency with k=20
+#   - 'p_true': Loads from estimator_results/p_true/.../confidence_predictions.jsonl
+#   - 'linear_probe_XXX': Uses linear probe with suffix from linear_probe_configs (e.g., 'linear_probe_math')
+confidence_sources: ['oracle', 'oracle_rc', 'linear_probe_math', 'verbalized']
 
-# Required entry for source name linear_probe_neurips (fallback if a dataset is missing from linear_probe_suffix_by_dataset)
+# Linear probe configurations
+# Maps probe names to their probe_suffix
+# The model name is automatically extracted from the folder being evaluated
+# Path format: estimator_results/linear_probe/{model}__{probe_suffix}/{dataset}/confidence_predictions.jsonl
 linear_probe_configs:
-  neurips: "trained-on-aime-train-cc"
+  math: "trained-on-math-train-and-validated-on-math-valid"
+  aime: "trained-on-aime-train-cc"
+  # Add more probe configurations as needed
 
-# Per-eval-dataset probe directory suffix (folder ...__{suffix}/...)
-# aime25-test: trained on AIME; math-500: trained on MATH (adjust strings to match your on-disk folder names)
-linear_probe_suffix_by_dataset:
-  aime25-test: "trained-on-aime-train-cc"
-  math-500: "trained-on-math-train-cc"
-
-# Subfolder under .../{model}__{suffix}/ that holds confidence_predictions.jsonl (defaults to eval dataset name if omitted)
-linear_probe_result_subdir_by_dataset:
-  aime25-test: "aime-test"
-  math-500: "math-500"
-
+# Which confidence sources to perform alpha search on
+# Empty list = no alpha search, only evaluate pure greedy
+# Example: ['oracle'] = search alphas for oracle
 search_alphas_for: []
+
+# Alpha values for interpolation (only used if search_alphas_for is non-empty)
+# alpha: 0.0 = pure greedy, 1.0 = uniform (baseline)
 test_alphas: [0.0, 0.25, 0.5, 0.75, 1.0]
 
+# Random seed for reproducible sampling
 random_seed: 42
+
+# Number of random seeds to run (for multi-seed version)
+# Each experiment runs with seeds: [random_seed, random_seed+1, ..., random_seed+num_seeds-1]
+# Results are averaged across seeds to reduce variance
 num_seeds: 10
+
+# If true, budget_sweep PDFs shade mean ±1 std across seeds per method (fill_between); mean line on top
 budget_sweep_plot_error_bars: false
 
+# Y-axis limits for specific (dataset, model) pairs
+# Format: "dataset__model": [ymin, ymax]
+# If not specified, y-axis will be computed adaptively based on data
 ylim_config:
-  "aime25-test__Qwen3-8B-non-thinking": [0.2, 0.7]
+  # Example:
+  "aime25-test__Qwen3-8B-non-thinking": [0.2, 0.58]
   "aime25-test__Olmo-3-7B-Instruct": [0.36, 0.9]
   "aime25-test__gpt-oss-20b": [0.68, 1.0]
   "math-500__Qwen3-8B-non-thinking": [0.84, 1.0]
   "math-500__Olmo-3-7B-Instruct": [0.9, 1.0]
-  "math-500__gpt-oss-20b": [0.94, 1.0]
+  "math-500__gpt-oss-20b": [0.96, 1.0]
+

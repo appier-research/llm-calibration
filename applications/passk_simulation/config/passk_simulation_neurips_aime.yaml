@@ -2,17 +2,17 @@
 
 # Datasets to process
 datasets:
-  - aime25-test
+  - aime-test
 
 # Paths (relative to passk_simulation/)
-outputs_dir: ../../outputs
+outputs_dir: ../../neurips2026/outputs
 results_dir: ../results/passk_simulation/neurips_dataset_level_passk_results
 
 # Standard estimator results (for verbalized, etc.)
-estimator_results_dir: ../../estimator_results
+estimator_results_dir: ../../neurips2026/estimator_results
 
 # NeurIPS linear probe results
-linear_probe_estimator_results_dir: ../../neurips2026_estimator_results
+linear_probe_estimator_results_dir: ../../neurips2026/estimator_results
 
 # Ground truth source: load expected_accuracy and samples from neurips confidence_predictions.jsonl
 ground_truth_source: linear_probe
@@ -24,10 +24,10 @@ linear_probe_configs:
 
 # Per-dataset probe suffix and result subdir
 linear_probe_suffix_by_dataset:
-  aime25-test: "trained-on-aime-train-cc"
+  aime-test: "trained-on-aime-train-cc"
 
 linear_probe_result_subdir_by_dataset:
-  aime25-test: "aime-test"
+  aime-test: "aime-test"
 
 # pass@k parameters
 k_values: [1, 2, 4, 8, 16, 32, 64]

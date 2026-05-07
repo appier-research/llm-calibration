@@ -24,7 +24,8 @@ linear_probe_configs:
   neurips: "trained-on-aime-train-cc"
 
 # Per-dataset probe suffix and result subdir
-linear_probe_suffix_by_dataset:
+# it will override the linear_probe_configs key
+linear_probe_suffix_by_dataset: 
   aime25-test: "trained-on-aime-train-cc"
   math-500: "trained-on-math-train-cc"
 
