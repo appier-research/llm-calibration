@@ -34,6 +34,7 @@ MODEL_DISPLAY_NAMES = {
 DATASET_DISPLAY_NAMES = {
     'math-500': 'MATH-500',
     'aime25-test': 'AIME25',
+    'aime-test': 'AIME',
     'gsm8k-test': 'GSM8K',
     'gsm8k-train': 'GSM8K',
     'triviaqa-train': 'TriviaQA',
@@ -50,9 +51,9 @@ DATASET_DISPLAY_NAMES = {
 TAB10 = sns.color_palette("tab10")
 
 MODEL_COLORS = {
-    'Olmo-3-7B-Instruct': '#56B4E9',      # First color (blue)
-    'Qwen3-8B-non-thinking': "#E69F00",   # Second color (orange)
-    'gpt-oss-20b': '#009E73'             # Third color (green)
+    'Olmo-3-7B-Instruct': '#1f77b4',      # First color (blue)
+    'Qwen3-8B-non-thinking': "#ff7f0e",   # Second color (orange)
+    'gpt-oss-20b': '#2ca02c'             # Third color (green)
 }
 
 

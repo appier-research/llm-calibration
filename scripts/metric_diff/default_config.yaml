@@ -4,7 +4,7 @@
 # List of datasets to analyze
 # The script automatically finds all model folders for each dataset
 datasets:
-  - aime25-test
+  - aime-test
   - gpqa-diamond
   - gsm8k-test
   #- gsm8k-train
@@ -15,7 +15,7 @@ datasets:
   - simpleqa-verified
 
 # Base directory containing output folders
-outputs_dir: ../../outputs
+outputs_dir: ../../neurips2026/outputs
 
 # Directory to save comparison results
 output_dir: ../../metric_diff_results
