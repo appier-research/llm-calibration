@@ -26,9 +26,10 @@ hf_models
 applications/results
 metric_diff_results
 estimator_results/*
+neurips2026/*
 
 # documents
-*.pdf
+#*.pdf
 
 # test blog page locally
 docs/_site
