@@ -500,6 +500,7 @@ def main():
     client = AsyncOpenAI(
         base_url=args.base_url,
         api_key="EMPTY",  # Often not needed for local endpoints
+        timeout=args.timeout,
     )
 
     # Run predictions
