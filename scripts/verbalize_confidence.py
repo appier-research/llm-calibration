@@ -98,20 +98,29 @@ def get_rc_prompt(question: str, response: str) -> str:
 
 
 def parse_confidence(response: str) -> float | None:
-    """Extract probability from \\boxed{P} format."""
+    """Extract probability from \\boxed{P} format.
+
+    If multiple \\boxed{...} are present (e.g. model also boxes the math answer),
+    prefer the last in-range match in [0, 1]; fall back to last numeric otherwise.
+    """
     if "<think>" in response:
         response = response.split("</think>")[1]
     matches = re.findall(r'\\boxed\{([0-9.]+)\}', response)
-    if matches:
-        last_match = matches[-1]
+    if not matches:
+        return None
+    parsed_vals = []
+    for m in matches:
         try:
-            val = float(last_match)
-            if not 0 <= val <= 1:
-                print(f"Warning: confidence value {val} is out of range [0, 1]")
-                return None
-            return val
+            parsed_vals.append(float(m))
         except ValueError:
-            return None
+            continue
+    if not parsed_vals:
+        return None
+    in_range = [v for v in parsed_vals if 0 <= v <= 1]
+    if in_range:
+        return in_range[-1]
+    last = parsed_vals[-1]
+    print(f"Warning: confidence value {last} is out of range [0, 1] (no in-range \\boxed found)")
     return None
 
 
