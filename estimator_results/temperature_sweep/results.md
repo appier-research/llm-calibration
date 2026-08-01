@@ -65,3 +65,73 @@
 | P(True) | 0.2713 | 0.0332 | 0.1278 |
 | P(True) + isotonic | 0.1611 | 0.0295 | 0.0981 |
 | Linear probe | <u>0.1208</u> | 0.0365 | 0.1013 |
+
+## Ground-Truth Expected Accuracy Comparisons
+
+Correlations and MSEs align examples by `example_id`. Mean expected accuracy uses all rows present in each ground-truth file.
+
+### Olmo-3-7B-Instruct: Spearman r vs Default Temperature 0.6
+
+| Comparison | TriviaQA validation | GSM8K test | MMLU test |
+|---|---:|---:|---:|
+| 0.6 <--> 0.3 | 0.9721 | 0.8654 | 0.9763 |
+| 0.6 <--> 0.15 | 0.9522 | 0.8443 | 0.9654 |
+
+### Olmo-3-7B-Instruct: MSE vs Default Temperature 0.6
+
+| Comparison | TriviaQA validation | GSM8K test | MMLU test |
+|---|---:|---:|---:|
+| 0.6 <--> 0.3 | 0.0048 | 0.0012 | 0.0034 |
+| 0.6 <--> 0.15 | 0.0106 | 0.0026 | 0.0063 |
+
+### Qwen3-8B-non-thinking: Spearman r vs Default Temperature 0.7
+
+| Comparison | TriviaQA validation | GSM8K test | MMLU test |
+|---|---:|---:|---:|
+| 0.7 <--> 0.35 | 0.9642 | 0.8680 | 0.9596 |
+| 0.7 <--> 0.175 | 0.9348 | 0.8129 | 0.9404 |
+
+### Qwen3-8B-non-thinking: MSE vs Default Temperature 0.7
+
+| Comparison | TriviaQA validation | GSM8K test | MMLU test |
+|---|---:|---:|---:|
+| 0.7 <--> 0.35 | 0.0052 | 0.0016 | 0.0026 |
+| 0.7 <--> 0.175 | 0.0106 | 0.0033 | 0.0059 |
+
+### gpt-oss-20b: Spearman r vs Default Temperature 1.0
+
+| Comparison | TriviaQA validation | GSM8K test | MMLU test |
+|---|---:|---:|---:|
+| 1.0 <--> 0.5 | 0.9449 | 0.6734 | 0.8784 |
+| 1.0 <--> 0.25 | 0.9225 | 0.6414 | 0.8530 |
+
+### gpt-oss-20b: MSE vs Default Temperature 1.0
+
+| Comparison | TriviaQA validation | GSM8K test | MMLU test |
+|---|---:|---:|---:|
+| 1.0 <--> 0.5 | 0.0120 | 0.0011 | 0.0035 |
+| 1.0 <--> 0.25 | 0.0208 | 0.0027 | 0.0063 |
+
+### Olmo-3-7B-Instruct: Mean Expected Accuracy by Temperature
+
+| Temperature | TriviaQA validation | GSM8K test | MMLU test |
+|---|---:|---:|---:|
+| 0.6 | 0.4884 | 0.9331 | 0.7006 |
+| 0.3 | 0.4933 | 0.9340 | 0.6989 |
+| 0.15 | 0.4957 | 0.9348 | 0.6989 |
+
+### Qwen3-8B-non-thinking: Mean Expected Accuracy by Temperature
+
+| Temperature | TriviaQA validation | GSM8K test | MMLU test |
+|---|---:|---:|---:|
+| 0.7 | 0.6040 | 0.9356 | 0.7940 |
+| 0.35 | 0.6122 | 0.9355 | 0.7979 |
+| 0.175 | 0.6140 | 0.9361 | 0.7976 |
+
+### gpt-oss-20b: Mean Expected Accuracy by Temperature
+
+| Temperature | TriviaQA validation | GSM8K test | MMLU test |
+|---|---:|---:|---:|
+| 1.0 | 0.6507 | 0.9576 | 0.8444 |
+| 0.5 | 0.6625 | 0.9585 | 0.8429 |
+| 0.25 | 0.6565 | 0.9566 | 0.8384 |
