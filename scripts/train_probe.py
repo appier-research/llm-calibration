@@ -33,7 +33,12 @@ import wandb
 from src.probes.linear import LinearProbe
 from src.probes.linear_classifier import LinearClassifierProbe
 from src.probes.mlp import MLPProbe
-from src.probes.trainer import ProbeDataset, ProbeTrainer, TrainingConfig
+from src.probes.trainer import (
+    CHECKPOINT_METRICS,
+    ProbeDataset,
+    ProbeTrainer,
+    TrainingConfig,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -108,9 +113,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--loss",
         type=str,
-        choices=["bce", "mse", "ce"],
+        choices=["bce", "mse", "ce", "ranknet_logistic_loss"],
         default="bce",
-        help="Loss function (default: bce). Use 'ce' for linear_classifier probe.",
+        help=(
+            "Loss function (default: bce). Use 'ce' for linear_classifier or "
+            "'ranknet_logistic_loss' with --no_apply_sigmoid for pairwise ranking."
+        ),
+    )
+    parser.add_argument(
+        "--ranknet_logistic_loss_temperature",
+        "--ranknet-logistic-loss-temperature",
+        type=float,
+        default=1.0,
+        help="Controls the sharpness of the RankNet logistic loss (default: 1.0).",
+    )
+    parser.add_argument(
+        "--ranknet_tie_loss_weight",
+        "--ranknet-tie-loss-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Weight on the neutral-preference loss for equal-target pairs "
+            "(default: 0.0)."
+        ),
     )
     parser.add_argument(
         "--optimizer",
@@ -160,6 +185,27 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=10,
         help="Early stopping patience (default: 10)",
+    )
+    parser.add_argument(
+        "--checkpoint_metric",
+        "--checkpoint-metric",
+        choices=CHECKPOINT_METRICS,
+        default="val_loss",
+        help=(
+            "Validation metric used for best-checkpoint selection and early "
+            "stopping (default: val_loss)."
+        ),
+    )
+    parser.add_argument(
+        "--checkpoint_metric_mode",
+        "--checkpoint-metric-mode",
+        choices=["auto", "min", "max"],
+        default="auto",
+        help=(
+            "Whether lower or higher checkpoint-metric values are better. "
+            "'auto' minimizes losses/errors and maximizes correlations "
+            "(default: auto)."
+        ),
     )
     parser.add_argument(
         "--lr_scheduler",
@@ -253,6 +299,14 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Number of classes for linear_classifier (k+1). Default: auto-detect from ground_truth_summary.json",
     )
+    parser.add_argument(
+        "--fixed_epochs_no_validation",
+        action="store_true",
+        help=(
+            "Train for exactly --epochs epochs without loading or consulting a "
+            "validation set. Saves the final checkpoint as best_probe.pt."
+        ),
+    )
     
     args = parser.parse_args()
     
@@ -260,11 +314,17 @@ def parse_args() -> argparse.Namespace:
     if args.no_apply_sigmoid:
         args.apply_sigmoid = False
     
-    # Validate --val_dir / --val_num_examples (exactly one must be provided)
-    if args.val_dir is None and args.val_num_examples is None:
-        parser.error("Must specify either --val_dir or --val_num_examples.")
-    if args.val_dir is not None and args.val_num_examples is not None:
-        parser.error("--val_dir and --val_num_examples are mutually exclusive.")
+    # Validate --val_dir / --val_num_examples / --fixed_epochs_no_validation
+    validation_modes = sum([
+        args.val_dir is not None,
+        args.val_num_examples is not None,
+        args.fixed_epochs_no_validation,
+    ])
+    if validation_modes != 1:
+        parser.error(
+            "Specify exactly one of --val_dir, --val_num_examples, or "
+            "--fixed_epochs_no_validation."
+        )
     if args.val_num_examples is not None and args.val_num_examples <= 0:
         parser.error("--val_num_examples must be a positive integer.")
     
@@ -369,7 +429,7 @@ def train_layer(
             train_dataset.targets[train_split_indices],
         )
     else:
-        val_dataset = ProbeDataset.from_safetensors(val_dir, layer_idx)
+        val_dataset = None if val_dir is None else ProbeDataset.from_safetensors(val_dir, layer_idx)
     
     # Subsample training set if requested (applied after val split)
     if subsample_indices is not None:
@@ -386,7 +446,11 @@ def train_layer(
     
     num_samples = len(train_dataset)
     
-    logger.info(f"  Train: {len(train_dataset)} examples, Val: {len(val_dataset)} examples")
+    if val_dataset is None:
+        logger.info(f"  Train: {len(train_dataset)} examples, Val: none")
+    else:
+        val_size = 0 if val_dataset is None else len(val_dataset)
+    logger.info(f"  Train: {len(train_dataset)} examples, Val: {val_size} examples")
     
     # Create probe
     probe = create_probe(args.probe_type, hidden_dim, args)
@@ -413,6 +477,10 @@ def train_layer(
         apply_sigmoid=args.apply_sigmoid,
         lr_scheduler_type=args.lr_scheduler,
         num_classes=args.num_classes,
+        ranknet_logistic_loss_temperature=args.ranknet_logistic_loss_temperature,
+        ranknet_tie_loss_weight=args.ranknet_tie_loss_weight,
+        checkpoint_metric=args.checkpoint_metric,
+        checkpoint_metric_mode=args.checkpoint_metric_mode,
     )
     
     # Initialize wandb for this layer
@@ -440,9 +508,14 @@ def train_layer(
                 "apply_sigmoid": args.apply_sigmoid,
                 "simulated_k": simulated_k,
                 "num_classes": args.num_classes,
+                "ranknet_logistic_loss_temperature": args.ranknet_logistic_loss_temperature,
+                "ranknet_tie_loss_weight": args.ranknet_tie_loss_weight,
+                "checkpoint_metric": args.checkpoint_metric,
+                "checkpoint_metric_mode": args.checkpoint_metric_mode,
                 "train_dir": str(train_dir),
                 "val_dir": str(val_dir) if val_dir is not None else None,
                 "val_num_examples": args.val_num_examples,
+        "fixed_epochs_no_validation": args.fixed_epochs_no_validation,
             },
             reinit=True,
         )
@@ -458,26 +531,47 @@ def train_layer(
     # Train
     results = trainer.train(train_dataset, val_dataset)
     
-    # Evaluate on validation set
-    eval_metrics = trainer.evaluate(val_dataset)
-    
-    logger.info(
-        f"  Layer {layer_idx} - Val Loss: {results['metrics']['best_val_loss']:.4f}, "
-        f"MAE: {eval_metrics['mae']:.4f}, Pearson r: {eval_metrics['pearson_r']:.4f}"
+    # Reuse the metrics computed at the selected best epoch.
+    best_val_metrics = results["metrics"]["best_val_metrics"]
+    eval_metrics = (
+        {
+            name: value
+            for name, value in best_val_metrics.items()
+            if name != "val_loss"
+        }
+        if best_val_metrics is not None
+        else {}
     )
     
+    if val_dataset is None:
+        logger.info(f"  Layer {layer_idx} - Final Train Loss: {results['metrics']['best_val_loss']:.4f}")
+    else:
+        logger.info(
+            f"  Layer {layer_idx} - Val Loss: {results['metrics']['best_val_loss']:.4f}, "
+            f"{results['metrics']['checkpoint_metric']}: "
+            f"{results['metrics']['best_checkpoint_metric_value']:.4f}, "
+            f"MAE: {eval_metrics['mae']:.4f}, Pearson r: {eval_metrics['pearson_r']:.4f}"
+        )
+
     # Log final metrics to wandb
     if use_wandb:
-        wandb.log({
-            "final/val_loss": results["metrics"]["best_val_loss"],
+        log_data = {
             "final/best_epoch": results["metrics"]["best_epoch"],
-            "final/mae": eval_metrics["mae"],
-            "final/mse": eval_metrics["mse"],
-            "final/rmse": eval_metrics["rmse"],
-            "final/pearson_r": eval_metrics["pearson_r"],
-            "final/spearman_r": eval_metrics["spearman_r"],
-            "final/ece": eval_metrics["ece"],
-        })
+        }
+        if val_dataset is None:
+            log_data["final/train_loss"] = results["metrics"]["best_val_loss"]
+        else:
+            log_data.update({
+                "final/val_loss": results["metrics"]["best_val_loss"],
+                "final/checkpoint_metric_value": results["metrics"]["best_checkpoint_metric_value"],
+                "final/mae": eval_metrics["mae"],
+                "final/mse": eval_metrics["mse"],
+                "final/rmse": eval_metrics["rmse"],
+                "final/pearson_r": eval_metrics["pearson_r"],
+                "final/spearman_r": eval_metrics["spearman_r"],
+                "final/ece": eval_metrics["ece"],
+            })
+        wandb.log(log_data)
         wandb.finish()
     
     # Save final probe
@@ -528,9 +622,12 @@ def train_pooled(
             train_dataset.targets[train_split_indices],
         )
     else:
-        val_dataset = ProbeDataset.from_safetensors_pooled(val_dir, pooling)
+        val_dataset = None if val_dir is None else ProbeDataset.from_safetensors_pooled(val_dir, pooling)
     logger.info(f"  Train dataset: {train_dataset.hidden_states.shape}, {train_dataset.targets.shape}")
-    logger.info(f"  Val dataset: {val_dataset.hidden_states.shape}, {val_dataset.targets.shape}")
+    if val_dataset is None:
+        logger.info("  Val dataset: none")
+    else:
+        logger.info(f"  Val dataset: {val_dataset.hidden_states.shape}, {val_dataset.targets.shape}")
     
     # Subsample training set if requested (applied after val split)
     if subsample_indices is not None:
@@ -548,7 +645,8 @@ def train_pooled(
     
     num_samples = len(train_dataset)
     
-    logger.info(f"  Train: {len(train_dataset)} examples, Val: {len(val_dataset)} examples")
+    val_size = 0 if val_dataset is None else len(val_dataset)
+    logger.info(f"  Train: {len(train_dataset)} examples, Val: {val_size} examples")
     
     # Create probe
     probe = create_probe(args.probe_type, hidden_dim, args)
@@ -575,6 +673,10 @@ def train_pooled(
         apply_sigmoid=args.apply_sigmoid,
         lr_scheduler_type=args.lr_scheduler,
         num_classes=args.num_classes,
+        ranknet_logistic_loss_temperature=args.ranknet_logistic_loss_temperature,
+        ranknet_tie_loss_weight=args.ranknet_tie_loss_weight,
+        checkpoint_metric=args.checkpoint_metric,
+        checkpoint_metric_mode=args.checkpoint_metric_mode,
     )
     
     # Initialize wandb for pooled experiment
@@ -602,6 +704,10 @@ def train_pooled(
                 "apply_sigmoid": args.apply_sigmoid,
                 "simulated_k": simulated_k,
                 "num_classes": args.num_classes,
+                "ranknet_logistic_loss_temperature": args.ranknet_logistic_loss_temperature,
+                "ranknet_tie_loss_weight": args.ranknet_tie_loss_weight,
+                "checkpoint_metric": args.checkpoint_metric,
+                "checkpoint_metric_mode": args.checkpoint_metric_mode,
                 "train_dir": str(train_dir),
                 "val_dir": str(val_dir) if val_dir is not None else None,
                 "val_num_examples": args.val_num_examples,
@@ -620,26 +726,47 @@ def train_pooled(
     # Train
     results = trainer.train(train_dataset, val_dataset)
     
-    # Evaluate on validation set
-    eval_metrics = trainer.evaluate(val_dataset)
-    
-    logger.info(
-        f"  Pooled {pooling} - Val Loss: {results['metrics']['best_val_loss']:.4f}, "
-        f"MAE: {eval_metrics['mae']:.4f}, Pearson r: {eval_metrics['pearson_r']:.4f}"
+    # Reuse the metrics computed at the selected best epoch.
+    best_val_metrics = results["metrics"]["best_val_metrics"]
+    eval_metrics = (
+        {
+            name: value
+            for name, value in best_val_metrics.items()
+            if name != "val_loss"
+        }
+        if best_val_metrics is not None
+        else {}
     )
     
+    if val_dataset is None:
+        logger.info(f"  Pooled {pooling} - Final Train Loss: {results['metrics']['best_val_loss']:.4f}")
+    else:
+        logger.info(
+            f"  Pooled {pooling} - Val Loss: {results['metrics']['best_val_loss']:.4f}, "
+            f"{results['metrics']['checkpoint_metric']}: "
+            f"{results['metrics']['best_checkpoint_metric_value']:.4f}, "
+            f"MAE: {eval_metrics['mae']:.4f}, Pearson r: {eval_metrics['pearson_r']:.4f}"
+        )
+
     # Log final metrics to wandb
     if use_wandb:
-        wandb.log({
-            "final/val_loss": results["metrics"]["best_val_loss"],
+        log_data = {
             "final/best_epoch": results["metrics"]["best_epoch"],
-            "final/mae": eval_metrics["mae"],
-            "final/mse": eval_metrics["mse"],
-            "final/rmse": eval_metrics["rmse"],
-            "final/pearson_r": eval_metrics["pearson_r"],
-            "final/spearman_r": eval_metrics["spearman_r"],
-            "final/ece": eval_metrics["ece"],
-        })
+        }
+        if val_dataset is None:
+            log_data["final/train_loss"] = results["metrics"]["best_val_loss"]
+        else:
+            log_data.update({
+                "final/val_loss": results["metrics"]["best_val_loss"],
+                "final/checkpoint_metric_value": results["metrics"]["best_checkpoint_metric_value"],
+                "final/mae": eval_metrics["mae"],
+                "final/mse": eval_metrics["mse"],
+                "final/rmse": eval_metrics["rmse"],
+                "final/pearson_r": eval_metrics["pearson_r"],
+                "final/spearman_r": eval_metrics["spearman_r"],
+                "final/ece": eval_metrics["ece"],
+            })
+        wandb.log(log_data)
         wandb.finish()
     
     # Save final probe
@@ -675,6 +802,16 @@ def main():
         if args.apply_sigmoid:
             raise ValueError("closed_form optimizer requires --no_apply_sigmoid")
 
+    if args.loss == "ranknet_logistic_loss":
+        if args.apply_sigmoid:
+            raise ValueError(
+                "ranknet_logistic_loss requires --no_apply_sigmoid so it can rank "
+                "raw probe scores"
+            )
+        if args.probe_type == "linear_classifier":
+            raise ValueError(
+                "ranknet_logistic_loss requires a scalar-output linear or MLP probe"
+            )
     train_dir = Path(args.train_dir)
     val_dir = Path(args.val_dir) if args.val_dir is not None else None
     output_dir = Path(args.output_dir)
@@ -696,11 +833,18 @@ def main():
     logger.info(f"  Optimizer: {args.optimizer}")
     logger.info(f"  LR: {args.lr}")
     logger.info(f"  Batch size: {args.batch_size}")
+    logger.info(
+        f"  Checkpoint metric: {args.checkpoint_metric} "
+        f"(mode={args.checkpoint_metric_mode})"
+    )
     logger.info(f"  Train dir: {train_dir}")
     if val_dir is not None:
         logger.info(f"  Val dir: {val_dir}")
     else:
-        logger.info(f"  Val: sampled from training set ({args.val_num_examples} examples, seed={args.seed})")
+        if args.fixed_epochs_no_validation:
+            logger.info("  Val: none (fixed-epoch training)")
+        else:
+            logger.info(f"  Val: sampled from training set ({args.val_num_examples} examples, seed={args.seed})")
     logger.info(f"  Output dir: {output_dir}")
     logger.info(f"  Seed: {args.seed}")
     if args.loss == "ce":
@@ -761,6 +905,10 @@ def main():
         "num_samples": args.num_samples,
         "seed": args.seed,
         "apply_sigmoid": args.apply_sigmoid,
+        "ranknet_logistic_loss_temperature": args.ranknet_logistic_loss_temperature,
+        "ranknet_tie_loss_weight": args.ranknet_tie_loss_weight,
+        "checkpoint_metric": args.checkpoint_metric,
+        "checkpoint_metric_mode": args.checkpoint_metric_mode,
         "n_layers": n_layers,
         "hidden_dim": hidden_dim,
         "layer_indices": args.layer_indices,
@@ -841,10 +989,16 @@ def main():
     
     # Log pooled results
     for p_result in pooled_results:
-        logger.info(
-            f"Pooled {p_result['pooling']} - Val Loss: {p_result['training']['best_val_loss']:.4f}, "
-            f"Pearson r: {p_result['evaluation']['pearson_r']:.4f}"
-        )
+        if p_result["evaluation"]:
+            logger.info(
+                f"Pooled {p_result['pooling']} - Val Loss: {p_result['training']['best_val_loss']:.4f}, "
+                f"Pearson r: {p_result['evaluation']['pearson_r']:.4f}"
+            )
+        else:
+            logger.info(
+                f"Pooled {p_result['pooling']} - Final Train Loss: "
+                f"{p_result['training']['best_val_loss']:.4f}"
+            )
     
     # Save summary of all layers, pooled, and best layer info
     summary = {
