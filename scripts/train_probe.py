@@ -30,6 +30,13 @@ import numpy as np
 import torch
 import wandb
 
+from src.probes.isotonic import (
+    ISOTONIC_REGRESSION_FILENAME,
+    apply_isotonic_regression,
+    confidence_metrics,
+    fit_isotonic_regression,
+    save_isotonic_regression,
+)
 from src.probes.linear import LinearProbe
 from src.probes.linear_classifier import LinearClassifierProbe
 from src.probes.mlp import MLPProbe
@@ -208,6 +215,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--apply_isotonic_regression",
+        "--apply-isotonic-regression",
+        action="store_true",
+        help=(
+            "Fit isotonic regression on training predictions from the selected "
+            "checkpoint, save it beside the checkpoint, and report calibrated "
+            "validation metrics."
+        ),
+    )
+    parser.add_argument(
         "--lr_scheduler",
         type=str,
         choices=["none", "linear", "cosine"],
@@ -327,6 +344,11 @@ def parse_args() -> argparse.Namespace:
         )
     if args.val_num_examples is not None and args.val_num_examples <= 0:
         parser.error("--val_num_examples must be a positive integer.")
+    if args.apply_isotonic_regression and args.fixed_epochs_no_validation:
+        parser.error(
+            "--apply_isotonic_regression requires --val_dir or "
+            "--val_num_examples so calibrated validation metrics can be computed."
+        )
     
     return args
 
@@ -396,6 +418,60 @@ def create_probe(probe_type: str, input_dim: int, args: argparse.Namespace):
         raise ValueError(f"Unknown probe type: {probe_type}")
 
 
+def clear_stale_isotonic_artifact(checkpoint_dir: Path) -> None:
+    """Remove calibration left by an earlier run in a reused output directory."""
+    artifact_path = checkpoint_dir / ISOTONIC_REGRESSION_FILENAME
+    if artifact_path.exists():
+        artifact_path.unlink()
+        logger.info(f"  Removed stale isotonic regression at {artifact_path}")
+
+
+def fit_isotonic_for_selected_checkpoint(
+    trainer: ProbeTrainer,
+    train_dataset: ProbeDataset,
+    val_dataset: ProbeDataset,
+    checkpoint_dir: Path,
+    metadata: dict,
+) -> tuple[dict[str, float], dict[str, float], dict]:
+    """Fit, persist, and evaluate isotonic calibration for a selected probe."""
+    train_predictions, train_targets = trainer.predict_dataset(train_dataset)
+    artifact = fit_isotonic_regression(
+        train_predictions,
+        train_targets,
+        metadata=metadata,
+    )
+
+    val_predictions, val_targets = trainer.predict_dataset(val_dataset)
+    calibrated_val_predictions = apply_isotonic_regression(
+        val_predictions,
+        artifact,
+    )
+    raw_val_metrics = confidence_metrics(val_predictions, val_targets)
+    calibrated_val_metrics = confidence_metrics(
+        calibrated_val_predictions,
+        val_targets,
+    )
+    artifact["validation_metrics"] = {
+        "n_examples": len(val_predictions),
+        "raw": raw_val_metrics,
+        "calibrated": calibrated_val_metrics,
+    }
+    artifact_path = save_isotonic_regression(artifact, checkpoint_dir)
+    logger.info(
+        f"  Saved isotonic regression to {artifact_path} "
+        f"(validation ECE: {raw_val_metrics['ece']:.4f} -> "
+        f"{calibrated_val_metrics['ece']:.4f})"
+    )
+
+    calibration_summary = {
+        "type": "isotonic_regression",
+        "artifact_path": str(artifact_path),
+        "training_metrics": artifact["training_metrics"],
+        "validation_metrics": artifact["validation_metrics"],
+    }
+    return raw_val_metrics, calibrated_val_metrics, calibration_summary
+
+
 def train_layer(
     layer_idx: int,
     train_dir: Path,
@@ -415,6 +491,7 @@ def train_layer(
     # Create layer-specific output directory
     layer_output_dir = output_dir / f"layer_{layer_idx:02d}"
     layer_output_dir.mkdir(parents=True, exist_ok=True)
+    clear_stale_isotonic_artifact(layer_output_dir)
     
     # Load datasets for this layer
     train_dataset = ProbeDataset.from_safetensors(train_dir, layer_idx)
@@ -512,6 +589,7 @@ def train_layer(
                 "ranknet_tie_loss_weight": args.ranknet_tie_loss_weight,
                 "checkpoint_metric": args.checkpoint_metric,
                 "checkpoint_metric_mode": args.checkpoint_metric_mode,
+                "apply_isotonic_regression": args.apply_isotonic_regression,
                 "train_dir": str(train_dir),
                 "val_dir": str(val_dir) if val_dir is not None else None,
                 "val_num_examples": args.val_num_examples,
@@ -531,9 +609,9 @@ def train_layer(
     # Train
     results = trainer.train(train_dataset, val_dataset)
     
-    # Reuse the metrics computed at the selected best epoch.
+    # Reuse the raw metrics computed at the selected best epoch.
     best_val_metrics = results["metrics"]["best_val_metrics"]
-    eval_metrics = (
+    raw_eval_metrics = (
         {
             name: value
             for name, value in best_val_metrics.items()
@@ -542,6 +620,32 @@ def train_layer(
         if best_val_metrics is not None
         else {}
     )
+    eval_metrics = raw_eval_metrics
+    isotonic_summary = None
+    if args.apply_isotonic_regression:
+        if val_dataset is None:
+            raise ValueError("Isotonic regression requires a validation dataset.")
+        raw_eval_metrics, eval_metrics, isotonic_summary = (
+            fit_isotonic_for_selected_checkpoint(
+                trainer,
+                train_dataset,
+                val_dataset,
+                layer_output_dir,
+                metadata={
+                    "fitted_checkpoint": "best_probe.pt",
+                    "probe_scope": "single_layer",
+                    "layer_idx": layer_idx,
+                    "train_dir": str(train_dir),
+                    "val_dir": str(val_dir) if val_dir is not None else None,
+                    "val_num_examples": args.val_num_examples,
+                    "best_epoch": results["metrics"]["best_epoch"],
+                    "checkpoint_metric": results["metrics"]["checkpoint_metric"],
+                    "best_checkpoint_metric_value": results["metrics"][
+                        "best_checkpoint_metric_value"
+                    ],
+                },
+            )
+        )
     
     if val_dataset is None:
         logger.info(f"  Layer {layer_idx} - Final Train Loss: {results['metrics']['best_val_loss']:.4f}")
@@ -571,6 +675,11 @@ def train_layer(
                 "final/spearman_r": eval_metrics["spearman_r"],
                 "final/ece": eval_metrics["ece"],
             })
+            if isotonic_summary is not None:
+                log_data.update({
+                    f"final/raw_{name}": value
+                    for name, value in raw_eval_metrics.items()
+                })
         wandb.log(log_data)
         wandb.finish()
     
@@ -582,6 +691,10 @@ def train_layer(
         "layer_idx": layer_idx,
         "training": results["metrics"],
         "evaluation": eval_metrics,
+        "raw_evaluation": (
+            raw_eval_metrics if isotonic_summary is not None else None
+        ),
+        "isotonic_regression": isotonic_summary,
     }
     with open(layer_output_dir / "results.json", "w") as f:
         json.dump(layer_results, f, indent=4)
@@ -608,6 +721,7 @@ def train_pooled(
     # Create pooled output directory
     pooled_output_dir = output_dir / f"layer_{pooling}_pooled"
     pooled_output_dir.mkdir(parents=True, exist_ok=True)
+    clear_stale_isotonic_artifact(pooled_output_dir)
     
     # Load datasets with pooling
     train_dataset = ProbeDataset.from_safetensors_pooled(train_dir, pooling)
@@ -708,6 +822,7 @@ def train_pooled(
                 "ranknet_tie_loss_weight": args.ranknet_tie_loss_weight,
                 "checkpoint_metric": args.checkpoint_metric,
                 "checkpoint_metric_mode": args.checkpoint_metric_mode,
+                "apply_isotonic_regression": args.apply_isotonic_regression,
                 "train_dir": str(train_dir),
                 "val_dir": str(val_dir) if val_dir is not None else None,
                 "val_num_examples": args.val_num_examples,
@@ -726,9 +841,9 @@ def train_pooled(
     # Train
     results = trainer.train(train_dataset, val_dataset)
     
-    # Reuse the metrics computed at the selected best epoch.
+    # Reuse the raw metrics computed at the selected best epoch.
     best_val_metrics = results["metrics"]["best_val_metrics"]
-    eval_metrics = (
+    raw_eval_metrics = (
         {
             name: value
             for name, value in best_val_metrics.items()
@@ -737,6 +852,32 @@ def train_pooled(
         if best_val_metrics is not None
         else {}
     )
+    eval_metrics = raw_eval_metrics
+    isotonic_summary = None
+    if args.apply_isotonic_regression:
+        if val_dataset is None:
+            raise ValueError("Isotonic regression requires a validation dataset.")
+        raw_eval_metrics, eval_metrics, isotonic_summary = (
+            fit_isotonic_for_selected_checkpoint(
+                trainer,
+                train_dataset,
+                val_dataset,
+                pooled_output_dir,
+                metadata={
+                    "fitted_checkpoint": "best_probe.pt",
+                    "probe_scope": "pooled",
+                    "pooling": pooling,
+                    "train_dir": str(train_dir),
+                    "val_dir": str(val_dir) if val_dir is not None else None,
+                    "val_num_examples": args.val_num_examples,
+                    "best_epoch": results["metrics"]["best_epoch"],
+                    "checkpoint_metric": results["metrics"]["checkpoint_metric"],
+                    "best_checkpoint_metric_value": results["metrics"][
+                        "best_checkpoint_metric_value"
+                    ],
+                },
+            )
+        )
     
     if val_dataset is None:
         logger.info(f"  Pooled {pooling} - Final Train Loss: {results['metrics']['best_val_loss']:.4f}")
@@ -766,6 +907,11 @@ def train_pooled(
                 "final/spearman_r": eval_metrics["spearman_r"],
                 "final/ece": eval_metrics["ece"],
             })
+            if isotonic_summary is not None:
+                log_data.update({
+                    f"final/raw_{name}": value
+                    for name, value in raw_eval_metrics.items()
+                })
         wandb.log(log_data)
         wandb.finish()
     
@@ -777,6 +923,10 @@ def train_pooled(
         "pooling": pooling,
         "training": results["metrics"],
         "evaluation": eval_metrics,
+        "raw_evaluation": (
+            raw_eval_metrics if isotonic_summary is not None else None
+        ),
+        "isotonic_regression": isotonic_summary,
     }
     with open(pooled_output_dir / "results.json", "w") as f:
         json.dump(pooled_results, f, indent=4)
@@ -836,6 +986,9 @@ def main():
     logger.info(
         f"  Checkpoint metric: {args.checkpoint_metric} "
         f"(mode={args.checkpoint_metric_mode})"
+    )
+    logger.info(
+        f"  Apply isotonic regression: {args.apply_isotonic_regression}"
     )
     logger.info(f"  Train dir: {train_dir}")
     if val_dir is not None:
@@ -909,6 +1062,7 @@ def main():
         "ranknet_tie_loss_weight": args.ranknet_tie_loss_weight,
         "checkpoint_metric": args.checkpoint_metric,
         "checkpoint_metric_mode": args.checkpoint_metric_mode,
+        "apply_isotonic_regression": args.apply_isotonic_regression,
         "n_layers": n_layers,
         "hidden_dim": hidden_dim,
         "layer_indices": args.layer_indices,

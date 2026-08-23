@@ -761,6 +761,29 @@ class ProbeTrainer:
             return torch.sigmoid(outputs)
         return outputs
 
+    def predict_dataset(
+        self,
+        dataset: ProbeDataset,
+    ) -> tuple[list[float], list[float]]:
+        """Return confidence predictions and targets for a probe dataset."""
+        self.probe.eval()
+        loader = DataLoader(
+            dataset,
+            batch_size=self.config.batch_size,
+            shuffle=False,
+        )
+        all_predictions: list[float] = []
+        all_targets: list[float] = []
+
+        with torch.no_grad():
+            for hidden_states, targets in loader:
+                outputs = self.probe(hidden_states.to(self.device))
+                confidences = self._outputs_to_confidences(outputs)
+                all_predictions.extend(confidences.cpu().tolist())
+                all_targets.extend(targets.tolist())
+
+        return all_predictions, all_targets
+
     def _validate(self, loader: DataLoader) -> dict[str, float]:
         """Validate once and return loss plus confidence-quality metrics."""
         from src.metrics.custom import c_star_metrics

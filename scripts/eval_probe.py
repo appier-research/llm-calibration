@@ -30,6 +30,11 @@ import torch
 from safetensors.torch import save_file
 
 from src.metrics.custom import c_star_metrics
+from src.probes.isotonic import (
+    ISOTONIC_REGRESSION_FILENAME,
+    apply_isotonic_regression,
+    load_isotonic_regression,
+)
 from src.probes.linear import LinearProbe
 from src.probes.linear_classifier import LinearClassifierProbe
 from src.probes.mlp import MLPProbe
@@ -84,6 +89,15 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=256,
         help="Batch size for inference (default: 256)",
+    )
+    parser.add_argument(
+        "--ignore_isotonic_regression",
+        "--ignore-isotonic-regression",
+        action="store_true",
+        help=(
+            "Do not apply an isotonic_regression.json sidecar found beside the "
+            "probe checkpoint."
+        ),
     )
     parser.add_argument(
         "--eval_target_type",
@@ -480,11 +494,11 @@ def main():
             f"Mismatch: {len(example_ids)} example IDs vs {len(dataset)} dataset examples"
         )
     
-    # Run inference
-    predictions, dataset_targets = run_inference(
+    # Run raw probe inference.
+    raw_predictions, dataset_targets = run_inference(
         probe, dataset, apply_sigmoid, device, args.batch_size, is_classifier
     )
-    logger.info(f"Inference complete: {len(predictions)} predictions")
+    logger.info(f"Inference complete: {len(raw_predictions)} predictions")
     
     # Override targets with expected_accuracy if requested
     if args.eval_target_type == "expected_accuracy":
@@ -495,16 +509,48 @@ def main():
         targets = dataset_targets
         logger.info("Using dataset targets")
     
-    # Compute metrics
+    # Automatically apply an isotonic sidecar saved beside the checkpoint.
+    isotonic_artifact_path = probe_path.parent / ISOTONIC_REGRESSION_FILENAME
+    isotonic_artifact = None
+    if not args.ignore_isotonic_regression:
+        isotonic_artifact = load_isotonic_regression(probe_path.parent)
+
+    predictions = raw_predictions
+    if isotonic_artifact is not None:
+        predictions = apply_isotonic_regression(
+            raw_predictions,
+            isotonic_artifact,
+        )
+        logger.info(f"Applied isotonic regression from {isotonic_artifact_path}")
+    elif args.ignore_isotonic_regression and isotonic_artifact_path.exists():
+        logger.info(f"Ignored isotonic regression at {isotonic_artifact_path}")
+
     metrics = c_star_metrics(predictions.tolist(), targets.tolist())
-    
+    raw_metrics = c_star_metrics(raw_predictions.tolist(), targets.tolist())
+
     results = {
         "eval_target_type": args.eval_target_type,
         "mse": metrics.mse,
         "ece": metrics.ece,
         "pearson_r": metrics.pearson_r,
         "spearman_r": metrics.spearman_r,
+        "isotonic_regression_applied": isotonic_artifact is not None,
     }
+    if isotonic_artifact is not None:
+        results["raw_metrics"] = {
+            "mae": raw_metrics.mae,
+            "mse": raw_metrics.mse,
+            "rmse": raw_metrics.rmse,
+            "ece": raw_metrics.ece,
+            "pearson_r": raw_metrics.pearson_r,
+            "spearman_r": raw_metrics.spearman_r,
+        }
+        results["calibration"] = {
+            "type": "isotonic_regression",
+            "artifact_path": str(isotonic_artifact_path),
+            "artifact_version": isotonic_artifact.get("artifact_version"),
+            "metadata": isotonic_artifact.get("metadata", {}),
+        }
     if args.eval_target_type == "expected_accuracy":
         results["ground_truth_path"] = args.ground_truth_path
     
@@ -514,15 +560,27 @@ def main():
         json.dump(results, f, indent=4)
     logger.info(f"Saved metrics to {metrics_path}")
     
-    # Save predicted confidences
+    # Save calibrated predictions and raw predictions when calibration was used.
     predictions_path = output_dir / "predicted_confidence.safetensors"
-    save_file({"predicted_confidence": torch.tensor(predictions)}, predictions_path)
+    prediction_tensors = {
+        "predicted_confidence": torch.tensor(predictions),
+    }
+    if isotonic_artifact is not None:
+        prediction_tensors["raw_predicted_confidence"] = torch.tensor(
+            raw_predictions
+        )
+    save_file(prediction_tensors, predictions_path)
     logger.info(f"Saved predictions to {predictions_path}")
     
-    # Save confidence predictions JSONL
+    # Save confidence predictions JSONL.
     jsonl_path = output_dir / "confidence_predictions.jsonl"
     with open(jsonl_path, "w") as f:
-        for eid, conf, exp_acc in zip(example_ids, predictions, targets):
+        for eid, conf, raw_conf, exp_acc in zip(
+            example_ids,
+            predictions,
+            raw_predictions,
+            targets,
+        ):
             # Recalculate expected_accuracy to eliminate numerical instability
             num_samples = 100
             num_correct = round(float(exp_acc) * num_samples)
@@ -535,7 +593,10 @@ def main():
                 num_samples=num_samples,
                 num_correct=num_correct,
             )
-            f.write(json.dumps(asdict(pred)) + "\n")
+            prediction_row = asdict(pred)
+            if isotonic_artifact is not None:
+                prediction_row["raw_confidence"] = float(raw_conf)
+            f.write(json.dumps(prediction_row) + "\n")
     logger.info(f"Saved {len(example_ids)} predictions to {jsonl_path}")
     
     # Generate reliability diagram
@@ -545,6 +606,9 @@ def main():
     # Print results
     logger.info("=" * 60)
     logger.info("Evaluation Results:")
+    if isotonic_artifact is not None:
+        logger.info(f"  Raw MSE:    {raw_metrics.mse:.6f}")
+        logger.info(f"  Raw ECE:    {raw_metrics.ece:.6f}")
     logger.info(f"  MSE:        {results['mse']:.6f}")
     logger.info(f"  ECE:        {results['ece']:.6f}")
     logger.info(f"  Pearson r:  {results['pearson_r']:.6f}")
