@@ -460,6 +460,8 @@ def reparse_and_archive_existing(
     with open(old_predictions_path) as f:
         for line in f:
             data = json.loads(line)
+            if data.get("parse_success") is False:
+                continue
             reparsed.append(PTrueConfidencePrediction(**data))
 
     # Write to new file

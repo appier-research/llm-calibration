@@ -414,7 +414,7 @@ def reparse_and_archive_existing(
             new_confidence = parse_confidence(data["response"])
             parse_success = new_confidence is not None
             if not parse_success:
-                new_confidence = 0.5
+                continue
 
             reparsed.append(VerbalizedConfidencePrediction(
                 example_id=data["example_id"],
