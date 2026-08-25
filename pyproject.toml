@@ -31,6 +31,8 @@ dependencies = [
     "nbconvert>=7.17.0",
     "python-dotenv>=1.2.1",
     "scikit-learn>=1.8.0",
+    "peft>=0.17.0",
+    "pytest>=8.0",
 ]
 
 [build-system]
