@@ -1,0 +1,17 @@
+{
+  "audit_scope": "adapted_lm",
+  "entries": [
+    {"dataset": "triviaqa", "role": "train", "model_name": "Olmo-3-7B-Instruct", "path": "outputs/triviaqa-train__Olmo-3-7B-Instruct", "expected_count": 7803},
+    {"dataset": "triviaqa", "role": "validation", "model_name": "Olmo-3-7B-Instruct", "path": "outputs/triviaqa-validation__Olmo-3-7B-Instruct", "expected_count": 1000},
+    {"dataset": "math", "role": "train", "model_name": "Olmo-3-7B-Instruct", "path": "outputs/math-train__Olmo-3-7B-Instruct", "expected_count": 11498},
+    {"dataset": "math", "role": "validation", "model_name": "Olmo-3-7B-Instruct", "path": "outputs/math-valid__Olmo-3-7B-Instruct", "expected_count": 500},
+    {"dataset": "mmlu", "role": "train", "model_name": "Olmo-3-7B-Instruct", "path": "outputs/mmlu-validation__Olmo-3-7B-Instruct", "expected_count": 1531},
+    {"dataset": "mmlu", "role": "validation", "model_name": "Olmo-3-7B-Instruct", "path": "outputs/mmlu-test__Olmo-3-7B-Instruct", "expected_count": 1000},
+    {"dataset": "triviaqa", "role": "train", "model_name": "Qwen3-8B-non-thinking", "path": "outputs/triviaqa-train__Qwen3-8B-non-thinking", "expected_count": 7803},
+    {"dataset": "triviaqa", "role": "validation", "model_name": "Qwen3-8B-non-thinking", "path": "outputs/triviaqa-validation__Qwen3-8B-non-thinking", "expected_count": 1000},
+    {"dataset": "math", "role": "train", "model_name": "Qwen3-8B-non-thinking", "path": "outputs/math-train__Qwen3-8B-non-thinking", "expected_count": 11498},
+    {"dataset": "math", "role": "validation", "model_name": "Qwen3-8B-non-thinking", "path": "outputs/math-valid__Qwen3-8B-non-thinking", "expected_count": 500},
+    {"dataset": "mmlu", "role": "train", "model_name": "Qwen3-8B-non-thinking", "path": "outputs/mmlu-validation__Qwen3-8B-non-thinking", "expected_count": 1531},
+    {"dataset": "mmlu", "role": "validation", "model_name": "Qwen3-8B-non-thinking", "path": "outputs/mmlu-test__Qwen3-8B-non-thinking", "expected_count": 1000}
+  ]
+}
