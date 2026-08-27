@@ -60,30 +60,36 @@ def validate(
     loader: DataLoader,
     device: torch.device,
 ) -> ValidationOutput:
+    was_training = model.training
     model.eval()
-    identifiers: list[str] = []
-    all_scores: list[torch.Tensor] = []
-    all_targets: list[torch.Tensor] = []
-    for batch in loader:
-        inputs = _to_device(batch["inputs"], device)
-        targets = batch["targets"].to(device).float()
-        scores = model.forward_scores(**inputs).float()
-        identifiers.extend(batch["example_ids"])
-        all_scores.append(scores.cpu())
-        all_targets.append(targets.cpu())
-    scores_tensor = torch.cat(all_scores)
-    targets_tensor = torch.cat(all_targets)
-    probabilities = scores_to_probabilities(scores_tensor)
-    result = c_star_metrics(probabilities.tolist(), targets_tensor.tolist())
-    metrics = {
-        "mae": result.mae,
-        "mse": result.mse,
-        "rmse": result.rmse,
-        "pearson_r": result.pearson_r,
-        "spearman_r": result.spearman_r,
-        "ece": result.ece,
-    }
-    return ValidationOutput(identifiers, scores_tensor, probabilities, targets_tensor, metrics)
+    try:
+        identifiers: list[str] = []
+        all_scores: list[torch.Tensor] = []
+        all_targets: list[torch.Tensor] = []
+        for batch in loader:
+            inputs = _to_device(batch["inputs"], device)
+            targets = batch["targets"].to(device).float()
+            scores = model.forward_scores(**inputs).float()
+            identifiers.extend(batch["example_ids"])
+            all_scores.append(scores.cpu())
+            all_targets.append(targets.cpu())
+        scores_tensor = torch.cat(all_scores)
+        targets_tensor = torch.cat(all_targets)
+        probabilities = scores_to_probabilities(scores_tensor)
+        result = c_star_metrics(probabilities.tolist(), targets_tensor.tolist())
+        metrics = {
+            "mae": result.mae,
+            "mse": result.mse,
+            "rmse": result.rmse,
+            "pearson_r": result.pearson_r,
+            "spearman_r": result.spearman_r,
+            "ece": result.ece,
+        }
+        return ValidationOutput(
+            identifiers, scores_tensor, probabilities, targets_tensor, metrics
+        )
+    finally:
+        model.train(was_training)
 
 
 def _save_resume_state(
@@ -257,6 +263,8 @@ def train_run(
         interval_loss_sum = 0.0
         interval_count = 0
         interval_gradient_norms: list[float] = []
+        step_validation: ValidationOutput | None = None
+        last_validation_step: int | None = None
         for epoch_step, batch in enumerate(train_loader, start=1):
             inputs = _to_device(batch["inputs"], device)
             targets = batch["targets"].to(device).float()
@@ -311,7 +319,24 @@ def train_run(
                 interval_loss_sum = 0.0
                 interval_count = 0
                 interval_gradient_norms = []
-        validation = validate(model, validation_loader, device)
+            if optimizer_steps % config.validate_every_k_steps == 0:
+                step_validation = validate(model, validation_loader, device)
+                last_validation_step = optimizer_steps
+                row = {
+                    "kind": "validation",
+                    "epoch": epoch,
+                    "optimizer_steps": optimizer_steps,
+                    "rung": control.rung,
+                    **step_validation.metrics,
+                }
+                artifacts.append_history(row)
+                if log_callback:
+                    log_callback(row)
+        validation = (
+            step_validation
+            if last_validation_step == optimizer_steps
+            else validate(model, validation_loader, device)
+        )
         epoch_row = {
             "kind": "epoch",
             "epoch": epoch,

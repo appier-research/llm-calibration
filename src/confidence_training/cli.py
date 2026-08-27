@@ -53,6 +53,7 @@ def add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--print-resolved-config", action="store_true")
+    parser.add_argument("--validate-every-k-steps", type=int)
 
 
 def config_from_namespace(args: argparse.Namespace) -> RunConfig:

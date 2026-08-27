@@ -97,6 +97,7 @@ class RunConfig:
     wandb_project: str | None = None
     wandb_entity: str | None = None
     wandb_mode: Literal["online", "offline", "disabled"] = "disabled"
+    validate_every_k_steps: int = 10
 
     @property
     def train_path(self) -> Path:
@@ -181,6 +182,8 @@ class RunConfig:
                 raise ValueError(
                     "--log-every-steps cannot be used with adaptation_strategy=linear_probe"
                 )
+        if self.validate_every_k_steps <= 0:
+            raise ValueError("validate_every_k_steps must be positive")
         if not 0.0 <= self.sgd_momentum < 1.0:
             raise ValueError("sgd_momentum must be in [0, 1)")
         if len(self.adamw_betas) != 2 or not all(

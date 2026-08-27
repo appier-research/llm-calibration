@@ -51,6 +51,7 @@ def test_training_dry_run_for_every_arm(strategy: str, loss: str, tmp_path: Path
     assert resolved["log_every_steps"] == (
         None if strategy == "linear_probe" else 10
     )
+    assert resolved["validate_every_k_steps"] == 10
     assert not (tmp_path / f"{strategy}-{loss}").exists()
 
 
@@ -68,6 +69,7 @@ def test_json_config_then_cli_override(tmp_path: Path) -> None:
         "learning_rate": 0.01,
         "batch_size": 8,
         "epochs": 2,
+        "validate_every_k_steps": 7,
     }
     path = tmp_path / "config.json"
     path.write_text(json.dumps(config))
@@ -86,7 +88,9 @@ def test_json_config_then_cli_override(tmp_path: Path) -> None:
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["learning_rate"] == 0.0002
+    resolved = json.loads(result.stdout)
+    assert resolved["learning_rate"] == 0.0002
+    assert resolved["validate_every_k_steps"] == 7
 
 
 def test_linear_probe_rejects_log_every_steps(tmp_path: Path) -> None:
