@@ -38,6 +38,11 @@ MODEL_DISPLAY_NAMES = {
     'Qwen3-8B-non-thinking': 'Qwen3-8B',
 }
 
+# Decoded samples charged per question to obtain confidence. Probe and oracle
+# cost 0. Verbalized is one completion per question; at B=1 that bill consumes
+# the budget, so the run keeps uniform answers and does not charge it.
+DEFAULT_CONFIDENCE_SAMPLE_COST = {'verbalized': 1}
+
 
 def get_display_name(name: str, name_type: str = 'dataset') -> str:
     """
@@ -362,12 +367,13 @@ def round_to_integers(float_array: np.ndarray, target_sum: int) -> np.ndarray:
     """
     # Floor first
     int_array = np.floor(float_array).astype(int)
-    remainder = target_sum - int_array.sum()
+    remainder = int(target_sum - int_array.sum())
 
-    # Distribute remainder based on fractional parts
-    fractional = float_array - int_array
-    top_indices = np.argsort(fractional)[-remainder:]
-    int_array[top_indices] += 1
+    # remainder == 0 must not index with [-0:], which is the whole array.
+    if remainder > 0:
+        fractional = float_array - int_array
+        top_indices = np.argsort(fractional)[-remainder:]
+        int_array[top_indices] += 1
 
     return int_array
 
@@ -449,16 +455,51 @@ def evaluate_method(ground_truth: Dict, samples: Dict, budget_allocation: np.nda
     return correct_count / total_count if total_count > 0 else 0.0
 
 
+def answer_budget_after_confidence_cost(
+    total_budget: int, n_questions: int, sample_cost: int
+) -> Tuple[int, bool]:
+    """Return (answer_budget, use_uniform).
+
+    sample_cost is how many decoded samples each question spends to obtain this
+    confidence source. Cost 0 leaves every sample for answers. If the bill would
+    leave no answer samples, confidence is not purchased and use_uniform is True.
+    """
+    if sample_cost <= 0:
+        return total_budget, False
+    if sample_cost * n_questions >= total_budget:
+        return total_budget, True
+    return total_budget - sample_cost * n_questions, False
+
+
+def allocation_record(method: str, conf_source, alpha, allocation: np.ndarray,
+                      accuracy: float, confidence_sample_cost: int) -> Dict:
+    """Metrics for one allocation. avg_budget counts answer samples only."""
+    return {
+        'method': method,
+        'confidence_source': conf_source,
+        'alpha': alpha,
+        'accuracy': accuracy,
+        'avg_budget': allocation.mean(),
+        'std_budget': allocation.std(),
+        'min_budget': allocation.min(),
+        'max_budget': allocation.max(),
+        'confidence_sample_cost': int(confidence_sample_cost),
+        'answer_budget': int(allocation.sum()),
+    }
+
+
 def evaluate_model(folder_path: Path, budget_multiplier: int, confidence_sources: List[str],
                    search_alphas_for: List[str], test_alphas: List[float], random_seed: int,
                    min_budget: int = 0, max_budget: int = 100,
-                   estimator_results_dir: Path = None, linear_probe_configs: Dict = None) -> Dict:
+                   estimator_results_dir: Path = None, linear_probe_configs: Dict = None,
+                   confidence_sample_cost: Dict = None) -> Dict:
     """
     Evaluate budget allocation methods for a single model at a specific budget level.
 
     Args:
         folder_path: Path to model output folder
-        budget_multiplier: Budget multiplier B (total_budget = B * N)
+        budget_multiplier: Budget multiplier B (total_budget = B * N). This stays
+            the plotted budget, including samples spent on confidence.
         confidence_sources: List of confidence sources to evaluate
         search_alphas_for: List of confidence sources to perform alpha search on
         test_alphas: Alpha values for interpolation
@@ -467,10 +508,15 @@ def evaluate_model(folder_path: Path, budget_multiplier: int, confidence_sources
         max_budget: Maximum samples per question
         estimator_results_dir: Path to estimator results directory
         linear_probe_configs: Dict mapping probe names to probe_suffix (for linear_probe sources)
+        confidence_sample_cost: Decoded samples charged per question, by source.
+            Missing sources cost 0. Defaults to one sample for verbalized.
 
     Returns:
         results: Dict mapping (method, confidence_source, alpha) -> metrics dict
     """
+    if confidence_sample_cost is None:
+        confidence_sample_cost = DEFAULT_CONFIDENCE_SAMPLE_COST
+
     # Load data
     ground_truth_path = folder_path / "ground_truth.jsonl"
     logging.info(f"    Loading from: {ground_truth_path}")
@@ -493,57 +539,61 @@ def evaluate_model(folder_path: Path, budget_multiplier: int, confidence_sources
     # Method 1: Uniform allocation
     uniform_budget_allocation = np.full(n_questions, uniform_budget_value)
     uniform_accuracy = evaluate_method(ground_truth, samples, uniform_budget_allocation, example_ids, random_seed)
-    results[('uniform', None, None)] = {
-        'method': 'uniform',
-        'confidence_source': None,
-        'alpha': None,
-        'accuracy': uniform_accuracy,
-        'avg_budget': uniform_budget_allocation.mean(),
-        'std_budget': uniform_budget_allocation.std(),
-        'min_budget': uniform_budget_allocation.min(),
-        'max_budget': uniform_budget_allocation.max()
-    }
+    results[('uniform', None, None)] = allocation_record(
+        'uniform', None, None, uniform_budget_allocation, uniform_accuracy, 0
+    )
 
-    # Method 2: Greedy for each confidence source
+    # Method 2: Greedy for each confidence source.
+    # The plotted budget stays B. A source that decodes confidence spends that
+    # cost first; only the remainder is allocated to answers.
     for conf_source in confidence_sources:
-        # Get confidence scores
-        confidences = get_confidence(ground_truth, example_ids, conf_source,
-                                     folder_path=folder_path,
-                                     estimator_results_dir=estimator_results_dir,
-                                     linear_probe_configs=linear_probe_configs,
-                                     samples=samples,
-                                     rc_random_seed=random_seed)
+        sample_cost = int(confidence_sample_cost.get(conf_source, 0))
+        answer_budget, use_uniform = answer_budget_after_confidence_cost(
+            total_budget, n_questions, sample_cost
+        )
+        charged_cost = 0 if use_uniform else sample_cost
 
-        # Evaluate pure greedy (alpha=0.0)
-        greedy_budget = allocate_budget_greedy(confidences, total_budget, min_budget, max_budget)
+        if use_uniform:
+            logging.info(
+                f"    {conf_source}: confidence cost {sample_cost}/question "
+                f"consumes B={budget_multiplier}; using uniform answers"
+            )
+            greedy_budget = uniform_budget_allocation.copy()
+        else:
+            if charged_cost:
+                logging.info(
+                    f"    {conf_source}: charging {charged_cost}/question; "
+                    f"allocating {answer_budget} answer samples at B={budget_multiplier}"
+                )
+            confidences = get_confidence(ground_truth, example_ids, conf_source,
+                                         folder_path=folder_path,
+                                         estimator_results_dir=estimator_results_dir,
+                                         linear_probe_configs=linear_probe_configs,
+                                         samples=samples,
+                                         rc_random_seed=random_seed)
+            greedy_budget = allocate_budget_greedy(confidences, answer_budget, min_budget, max_budget)
+
         greedy_accuracy = evaluate_method(ground_truth, samples, greedy_budget, example_ids, random_seed)
-        results[('greedy', conf_source, 0.0)] = {
-            'method': 'greedy',
-            'confidence_source': conf_source,
-            'alpha': 0.0,
-            'accuracy': greedy_accuracy,
-            'avg_budget': greedy_budget.mean(),
-            'std_budget': greedy_budget.std(),
-            'min_budget': greedy_budget.min(),
-            'max_budget': greedy_budget.max()
-        }
+        results[('greedy', conf_source, 0.0)] = allocation_record(
+            'greedy', conf_source, 0.0, greedy_budget, greedy_accuracy, charged_cost
+        )
 
-        # Alpha search (if requested for this confidence source)
+        # Alpha search mixes uniform and greedy inside the answer budget.
         if conf_source in search_alphas_for:
+            if charged_cost:
+                per_question = min(budget_multiplier - charged_cost, max_budget)
+                interp_uniform = np.full(n_questions, per_question, dtype=float)
+                interp_total = answer_budget
+            else:
+                interp_uniform = uniform_budget
+                interp_total = total_budget
             for alpha in test_alphas:
-                interp_budget = allocate_budget_interpolated(uniform_budget, greedy_budget.astype(float),
-                                                             alpha, total_budget, max_budget)
+                interp_budget = allocate_budget_interpolated(interp_uniform, greedy_budget.astype(float),
+                                                             alpha, interp_total, max_budget)
                 interp_accuracy = evaluate_method(ground_truth, samples, interp_budget, example_ids, random_seed)
-                results[('greedy', conf_source, alpha)] = {
-                    'method': 'greedy',
-                    'confidence_source': conf_source,
-                    'alpha': alpha,
-                    'accuracy': interp_accuracy,
-                    'avg_budget': interp_budget.mean(),
-                    'std_budget': interp_budget.std(),
-                    'min_budget': interp_budget.min(),
-                    'max_budget': interp_budget.max()
-                }
+                results[('greedy', conf_source, alpha)] = allocation_record(
+                    'greedy', conf_source, alpha, interp_budget, interp_accuracy, charged_cost
+                )
 
     return results
 
@@ -859,6 +909,7 @@ def main():
     min_budget = config.get('min_budget', 0)
     max_budget = config.get('max_samples_per_question', 100)
     confidence_sources = config.get('confidence_sources', ['oracle'])
+    confidence_sample_cost = config.get('confidence_sample_cost', DEFAULT_CONFIDENCE_SAMPLE_COST) or {}
     search_alphas_for = config.get('search_alphas_for', [])
     test_alphas = config.get('test_alphas', [0.25, 0.5, 0.75])
     datasets = config.get('datasets', [])
@@ -890,6 +941,7 @@ def main():
     logger.info(f"Min budget per question: {min_budget}")
     logger.info(f"Max budget per question: {max_budget}")
     logger.info(f"Confidence sources: {confidence_sources}")
+    logger.info(f"Confidence sample cost: {confidence_sample_cost}")
     logger.info(f"Alpha search for: {search_alphas_for}")
     logger.info(f"Test alphas: {test_alphas}")
     logger.info(f"Base random seed: {random_seed}")
@@ -935,7 +987,7 @@ def main():
                         results = evaluate_model(folder_path, budget_mult, confidence_sources,
                                                search_alphas_for, test_alphas, current_seed,
                                                min_budget, max_budget, estimator_results_dir,
-                                               linear_probe_configs)
+                                               linear_probe_configs, confidence_sample_cost)
 
                         # Collect results by key
                         for key, metrics in results.items():
@@ -957,6 +1009,8 @@ def main():
                                 'std_budget': metrics['std_budget'],
                                 'min_budget': metrics['min_budget'],
                                 'max_budget': metrics['max_budget'],
+                                'confidence_sample_cost': metrics['confidence_sample_cost'],
+                                'answer_budget': metrics['answer_budget'],
                                 'seed': current_seed
                             }
 

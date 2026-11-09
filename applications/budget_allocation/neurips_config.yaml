@@ -51,6 +51,11 @@ max_samples_per_question: 100
 #   - 'linear_probe_XXX': Uses linear probe with suffix from linear_probe_configs (e.g., 'linear_probe_math')
 confidence_sources: ['oracle', 'oracle_rc', 'linear_probe_math', 'verbalized']
 
+# Decoded samples charged per question before answer allocation.
+# Omitted sources cost 0. Verbalized at B=1 falls back to uniform answers.
+confidence_sample_cost:
+  verbalized: 1
+
 # Linear probe configurations
 # Maps probe names to their probe_suffix
 # The model name is automatically extracted from the folder being evaluated
