@@ -18,6 +18,14 @@ outputs_dir: ../../outputs
 results_dir: ../results/passk_simulation/dataset_level_passk_results
 estimator_results_dir: ../../estimator_results
 
+# Optional neurips-style ground truth loading (see passk_simulation_neurips_math.yaml):
+# ground_truth_source: linear_probe
+# ground_truth_linear_probe: neurips
+# linear_probe_estimator_results_dir: ../../neurips2026_estimator_results
+# linear_probe_configs: {...}
+# linear_probe_suffix_by_dataset: {...}
+# linear_probe_result_subdir_by_dataset: {...}
+
 # pass@k parameters
 k_values: [1, 2, 4, 8, 16, 32, 64]
 max_samples: 100                # Maximum number of samples to use per instance

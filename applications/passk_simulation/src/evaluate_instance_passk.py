@@ -227,7 +227,13 @@ def process_model(
     dataset: str,
     config: dict,
     dataset_results_dir: Path,
-    estimator_results_dir: Path = None
+    estimator_results_dir: Path = None,
+    linear_probe_configs: Dict = None,
+    linear_probe_estimator_results_dir: Path = None,
+    linear_probe_suffix_by_dataset: Dict = None,
+    linear_probe_result_subdir_by_dataset: Dict = None,
+    ground_truth_source: str = 'ground_truth_jsonl',
+    ground_truth_linear_probe: str = None,
 ):
     """
     Process a single model.
@@ -241,7 +247,14 @@ def process_model(
     try:
         ground_truth, samples, example_ids = load_model_data(
             folder_path,
-            config['max_samples']
+            config['max_samples'],
+            ground_truth_source=ground_truth_source,
+            ground_truth_linear_probe=ground_truth_linear_probe,
+            linear_probe_configs=linear_probe_configs,
+            estimator_results_dir=estimator_results_dir,
+            linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+            linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+            linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
         )
         logging.info(f"  Loaded {len(example_ids)} examples")
     except Exception as e:
@@ -272,7 +285,11 @@ def process_model(
                         ground_truth,
                         example_ids,
                         estimator_results_dir,
-                        samples
+                        samples,
+                        linear_probe_configs=linear_probe_configs,
+                        linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+                        linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+                        linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
                     )
 
                     # Compute metrics
@@ -313,7 +330,11 @@ def process_model(
                     ground_truth,
                     example_ids,
                     estimator_results_dir,
-                    samples
+                    samples,
+                    linear_probe_configs=linear_probe_configs,
+                    linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+                    linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+                    linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
                 )
 
                 # Compute metrics
@@ -379,6 +400,16 @@ def main():
     results_dir.mkdir(parents=True, exist_ok=True)
 
     estimator_results_dir = Path(config.get('estimator_results_dir', 'estimator_results')).resolve()
+    
+    # Get neurips-specific parameters
+    linear_probe_configs = config.get('linear_probe_configs')
+    linear_probe_estimator_results_dir = config.get('linear_probe_estimator_results_dir')
+    if linear_probe_estimator_results_dir is not None:
+        linear_probe_estimator_results_dir = Path(linear_probe_estimator_results_dir).resolve()
+    linear_probe_suffix_by_dataset = config.get('linear_probe_suffix_by_dataset')
+    linear_probe_result_subdir_by_dataset = config.get('linear_probe_result_subdir_by_dataset')
+    ground_truth_source = config.get('ground_truth_source', 'ground_truth_jsonl')
+    ground_truth_linear_probe = config.get('ground_truth_linear_probe')
 
     # Setup logging
     log_path = setup_logging(results_dir)
@@ -391,6 +422,11 @@ def main():
     logging.info(f"k values: {config['k_values']}")
     logging.info(f"Metrics: {config['metrics']}")
     logging.info(f"Results dir: {results_dir}")
+    logging.info(f"Estimator results dir: {estimator_results_dir}")
+    if linear_probe_estimator_results_dir:
+        logging.info(f"Linear probe estimator results dir: {linear_probe_estimator_results_dir}")
+    logging.info(f"Ground truth source: {ground_truth_source}" +
+                (f" (linear_probe key={ground_truth_linear_probe!r})" if ground_truth_source == 'linear_probe' else ""))
     logging.info(f"Log file: {log_path}")
 
     # Group folders by dataset
@@ -426,7 +462,13 @@ def main():
                 dataset,
                 config,
                 dataset_results_dir,
-                estimator_results_dir
+                estimator_results_dir,
+                linear_probe_configs=linear_probe_configs,
+                linear_probe_estimator_results_dir=linear_probe_estimator_results_dir,
+                linear_probe_suffix_by_dataset=linear_probe_suffix_by_dataset,
+                linear_probe_result_subdir_by_dataset=linear_probe_result_subdir_by_dataset,
+                ground_truth_source=ground_truth_source,
+                ground_truth_linear_probe=ground_truth_linear_probe,
             )
 
             if rows is not None:

@@ -1,0 +1,69 @@
+# Configuration for pass@k Simulation with NeurIPS estimator results (MATH-500)
+
+# Datasets to process
+datasets:
+  - math-500
+
+# Paths (relative to passk_simulation/)
+outputs_dir: ../../outputs
+results_dir: ../results/passk_simulation/neurips_dataset_level_passk_results
+
+# Standard estimator results (for verbalized, etc.)
+estimator_results_dir: ../../estimator_results
+
+# NeurIPS linear probe results
+linear_probe_estimator_results_dir: ../../neurips2026_estimator_results
+
+# Ground truth source: load expected_accuracy and samples from neurips confidence_predictions.jsonl
+ground_truth_source: linear_probe
+ground_truth_linear_probe: neurips
+
+# Linear probe configs for neurips
+linear_probe_configs:
+  neurips: "trained-on-math-train-cc"
+
+# Per-dataset probe suffix and result subdir
+linear_probe_suffix_by_dataset:
+  math-500: "trained-on-math-train-cc"
+
+linear_probe_result_subdir_by_dataset:
+  math-500: "math-500"
+
+# pass@k parameters
+k_values: [1, 2, 4, 8, 16, 32, 64]
+max_samples: 100
+
+# Confidence clipping thresholds
+clipping_thresholds: [0.0]
+
+# Confidence sources
+confidence_sources:
+  oracle_rc:
+    type: "oracle_response"
+    label: "Oracle-RC"
+    category: "baseline"
+
+  oracle_cc:
+    type: "ground_truth"
+    label: "Oracle-CC"
+    category: "standard"
+
+  linear_probe_neurips:
+    type: "learned"
+    method: "linear_probe"
+    probe_suffix: "trained-on-math-train-cc"
+    label: "Probe"
+    category: "probe"
+
+# Plotting configuration
+plot_config:
+  figsize: [10, 6]
+  dpi: 300
+  show_ci: true
+  alpha_ci: 0.2
+  grid: true
+  grid_alpha: 0.3
+  y_tick_list: [0.8, 0.9, 1.0]
+  adaptive_ylim: false
+  ylim_margin: 0.05
+  ylim_min_range: 0.15

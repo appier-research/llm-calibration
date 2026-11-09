@@ -29,7 +29,7 @@ DATASET_DISPLAY_NAMES = {
     'triviaqa-validation': 'TriviaQA',
     'mmlu-pro': 'MMLU-Pro',
     'math-500': 'MATH-500',
-    'aime25-test': 'AIME25',
+    'aime-test': 'AIME',
 }
 
 MODEL_DISPLAY_NAMES = {
@@ -87,8 +87,18 @@ def parse_folder_name(folder_name: str) -> Tuple[str, str]:
     return folder_name, 'unknown'
 
 
-def group_folders_by_dataset(outputs_dir: Path, datasets: List[str]) -> Dict[str, List[Tuple[str, str]]]:
-    """Group output folders by dataset."""
+def group_folders_by_dataset(outputs_dir: Path, datasets: List[str], models: List[str] = None) -> Dict[str, List[Tuple[str, str]]]:
+    """
+    Group output folders by dataset, optionally filtering by model names.
+    
+    Args:
+        outputs_dir: Directory containing output folders
+        datasets: List of dataset names to include
+        models: Optional list of model names to filter by (if None, include all models)
+    
+    Returns:
+        Dict mapping dataset name to list of (folder_name, model_name) tuples
+    """
     grouped = defaultdict(list)
 
     for folder in outputs_dir.iterdir():
@@ -105,7 +115,9 @@ def group_folders_by_dataset(outputs_dir: Path, datasets: List[str]) -> Dict[str
         dataset, model = parse_folder_name(folder.name)
 
         if dataset in datasets:
-            grouped[dataset].append((folder.name, model))
+            # Filter by models if specified
+            if models is None or model in models:
+                grouped[dataset].append((folder.name, model))
 
     return dict(grouped)
 
@@ -204,7 +216,7 @@ def get_confidence(ground_truth: Dict, example_ids: List[str], confidence_source
 
     if confidence_source == 'verbalized':
         # Load from verbalized_confidence
-        conf_file = estimator_results_dir / 'verbalized_confidence' / folder_name / 'confidence_predictions.jsonl'
+        conf_file = estimator_results_dir / 'verbalized_confidence' / folder_name / 'confidence_predictions_cc.jsonl'
         if not conf_file.exists():
             raise FileNotFoundError(f"Confidence file not found: {conf_file}")
 
@@ -668,16 +680,10 @@ def plot_budget_sweep(results_df: pd.DataFrame, dataset: str, model: str, output
     ax.grid(True, alpha=0.3)
     ax.set_xscale('log', base=2)
 
-    # Reduce y-axis tick density and format to 2 decimal places
-    from matplotlib.ticker import MaxNLocator, FormatStrFormatter
-    ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
-    ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-
     # Set y-axis limits
     # Check if custom ylim is specified for this (dataset, model) pair
     if ylim_config and (dataset, model) in ylim_config:
         y_min, y_max = ylim_config[(dataset, model)]
-        ax.set_ylim([y_min, y_max])
     else:
         # Adaptive y-axis: compute range across all curves with margin
         acc = results_df['accuracy'].values
@@ -715,11 +721,15 @@ def plot_budget_sweep(results_df: pd.DataFrame, dataset: str, model: str, output
 
             # Cap display at 1.0 (don't show accuracy > 1.0)
             y_max = min(1.0, y_max)
-
-            ax.set_ylim([y_min, y_max])
         else:
             # Fallback to default
-            ax.set_ylim([0, 1.0])
+            y_min, y_max = 0, 1.0
+
+    # Set ylim and clean y-axis ticks with exactly 3 ticks (min, mid, max)
+    ax.set_ylim([y_min, y_max])
+    yticks = [y_min, (y_min + y_max) / 2, y_max]
+    ax.set_yticks(yticks)
+    ax.set_yticklabels([f'{y:.2f}' for y in yticks])
 
     plt.tight_layout()
     plt.savefig(output_path, format='pdf', dpi=300, bbox_inches='tight')
@@ -852,6 +862,7 @@ def main():
     search_alphas_for = config.get('search_alphas_for', [])
     test_alphas = config.get('test_alphas', [0.25, 0.5, 0.75])
     datasets = config.get('datasets', [])
+    models = config.get('models', None)  # Optional: filter by specific models
     linear_probe_configs = config.get('linear_probe_configs', {})
     ylim_config = config.get('ylim_config', {})
     budget_sweep_plot_error_bars = config.get('budget_sweep_plot_error_bars', False)
@@ -885,10 +896,11 @@ def main():
     logger.info(f"Number of seeds: {num_seeds}")
     logger.info(f"Seed range: [{random_seed}, {random_seed + num_seeds - 1}]")
     logger.info(f"Datasets: {datasets}")
+    logger.info(f"Models filter: {models if models else 'all models'}")
     logger.info(f"Budget sweep seed std band (mean ±1 std, shaded): {budget_sweep_plot_error_bars}")
 
-    # Group folders by dataset
-    grouped_folders = group_folders_by_dataset(outputs_dir, datasets)
+    # Group folders by dataset (and optionally filter by models)
+    grouped_folders = group_folders_by_dataset(outputs_dir, datasets, models)
     logger.info(f"Found {len(grouped_folders)} datasets")
 
     # Collect all results

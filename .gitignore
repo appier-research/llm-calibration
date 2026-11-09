@@ -26,6 +26,8 @@ hf_models
 applications/results
 metric_diff_results
 estimator_results/*
+neurips2026_estimator_results/*
+neurips2026/*
 
 # documents
 *.pdf
