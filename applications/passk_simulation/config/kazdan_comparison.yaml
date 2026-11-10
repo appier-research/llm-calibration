@@ -1,0 +1,27 @@
+# Probe + Bayes vs. Kazdan et al. (2025) under a small dynamic sampling budget
+
+# Paths (relative to passk_simulation/)
+probe_results_dir: ../../neurips2026/estimator_results/linear_probe
+results_dir: ../results/passk_simulation/kazdan_comparison
+
+# Probe predictions are read from
+# {probe_results_dir}/{model}__{probe_suffix}/{dataset}/confidence_predictions.jsonl
+experiments:
+  - dataset: aime-test
+    probe_suffix: trained-on-aime-train-cc
+  - dataset: math-500
+    probe_suffix: trained-on-math-train-cc
+
+models:
+  - Olmo-3-7B-Instruct
+  - Qwen3-8B-non-thinking
+  - gpt-oss-20b
+
+# Each question's responses: first pool_size (after shuffling) for test-time sampling, rest held out
+pool_size: 20
+budgets: [2, 5, 10]             # Average samples per question; total budget = b * num_questions
+prior_strength: 2.0             # lambda: pseudo-sample weight of the probe prior
+k_values: [1, 2, 4, 8, 16, 32, 64]
+table_k_values: [4, 16, 64]
+num_splits: 20
+seed: 0

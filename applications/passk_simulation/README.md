@@ -14,6 +14,11 @@ Dataset-level pass@k simulation curve on math500:
 python src/run_simulation.py --config ./config/passk_simulation_math500.yaml
 ```
 
+Comparison with Kazdan et al. (2025) under a small dynamic sampling budget (probe prior + Bayesian update vs. beta-binomial fit):
+```
+python src/compare_kazdan.py --config ./config/kazdan_comparison.yaml
+```
+
 
 ## Project Structure
 
